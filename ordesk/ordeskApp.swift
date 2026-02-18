@@ -1,17 +1,14 @@
-//
-//  ordeskApp.swift
-//  ordesk
-//
-//  Created by Fawaz Faiz on 18/02/2026.
-//
-
 import SwiftUI
 
 @main
 struct ordeskApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        // Menu bar app — no main window needed.
+        // The popover is managed by AppDelegate via NSStatusItem.
+        Settings {
+            EmptyView()
         }
     }
 }
