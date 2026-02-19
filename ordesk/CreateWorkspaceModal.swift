@@ -40,8 +40,9 @@ struct CreateWorkspaceModal: View {
     }
 
     private var canSave: Bool {
-        let nameValid = !workspaceName.trimmingCharacters(in: .whitespaces).isEmpty
-        return nameValid && selectedCount >= minApps
+        let meetsMin = selectedCount >= minApps
+        let withinMax = selectedCount <= maxApps
+        return meetsMin && withinMax
     }
 
     private var isAtMaxApps: Bool {
@@ -70,6 +71,9 @@ struct CreateWorkspaceModal: View {
                     .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
                     .shadow(color: .black.opacity(0.2), radius: 40, y: 16)
             )
+            .onAppear {
+                enforceMaxApps()
+            }
         }
     }
 
@@ -255,8 +259,9 @@ struct CreateWorkspaceModal: View {
             }
             .buttonStyle(.plain)
 
-            // Save button
+            // Save & Edit button
             SaveButton(
+                label: "Save & Edit",
                 isEnabled: canSave,
                 action: saveWorkspace
             )
@@ -279,8 +284,12 @@ struct CreateWorkspaceModal: View {
                 )
             }
 
+        // Use entered name or generate a default
+        let trimmedName = workspaceName.trimmingCharacters(in: .whitespaces)
+        let finalName = trimmedName.isEmpty ? "Workspace \(store.workspaces.count + 1)" : trimmedName
+
         let workspace = Workspace(
-            name: workspaceName.trimmingCharacters(in: .whitespaces),
+            name: finalName,
             apps: selectedApps,
             restoreWindowLayout: restoreWindowLayout,
             reuseOpenApps: reuseOpenApps,
@@ -288,10 +297,12 @@ struct CreateWorkspaceModal: View {
         )
 
         store.addWorkspace(workspace)
+
+        // Dismiss the create modal first, then open editor
+        store.showingCreateModal = false
         onDismiss()
 
-        // Open editor for the newly created workspace
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             store.selectedWorkspace = workspace
             store.showingEditor = true
         }
@@ -443,13 +454,14 @@ struct CheckboxRow: View {
 // MARK: - Save Button
 
 struct SaveButton: View {
+    var label: String = "Save"
     let isEnabled: Bool
     let action: () -> Void
     @State private var isHovered = false
 
     var body: some View {
         Button(action: action) {
-            Text("Save")
+            Text(label)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 20)
