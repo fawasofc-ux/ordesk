@@ -18,6 +18,7 @@ struct CreateWorkspaceModal: View {
     @State private var workspaceName = ""
     @State private var restoreWindowLayout = true
     @State private var reuseOpenApps = true
+    @State private var displayMode: DisplayMode = .single
     @State private var detectedApps: [DetectedApp] = Self.sampleDetectedApps()
 
     var onDismiss: () -> Void
@@ -28,6 +29,23 @@ struct CreateWorkspaceModal: View {
 
     private var totalCount: Int {
         detectedApps.count
+    }
+
+    private var maxApps: Int {
+        displayMode.maxApps
+    }
+
+    private var minApps: Int {
+        displayMode.minApps
+    }
+
+    private var canSave: Bool {
+        let nameValid = !workspaceName.trimmingCharacters(in: .whitespaces).isEmpty
+        return nameValid && selectedCount >= minApps
+    }
+
+    private var isAtMaxApps: Bool {
+        selectedCount >= maxApps
     }
 
     var body: some View {
@@ -79,6 +97,9 @@ struct CreateWorkspaceModal: View {
                 // Workspace name input
                 nameInputSection
 
+                // Display mode selector
+                displayModeSection
+
                 // Detected apps list
                 detectedAppsSection
 
@@ -111,6 +132,53 @@ struct CreateWorkspaceModal: View {
         }
     }
 
+    // MARK: - Display Mode
+
+    private var displayModeSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Display Setup")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(DesignSystem.textSecondary)
+
+            HStack(spacing: 0) {
+                ForEach(DisplayMode.allCases, id: \.self) { mode in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            displayMode = mode
+                            // Deselect excess apps when switching to a lower mode
+                            enforceMaxApps()
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: mode.icon)
+                                .font(.system(size: 10))
+                            Text(mode.label)
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .foregroundStyle(displayMode == mode ? .white : DesignSystem.textSecondary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(
+                            Capsule()
+                                .fill(displayMode == mode ? DesignSystem.primaryBlue : Color.clear)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(3)
+            .background(
+                Capsule()
+                    .fill(DesignSystem.elevatedSurface)
+                    .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
+            )
+
+            Text("Max \(maxApps) apps • Min \(minApps) app\(minApps > 1 ? "s" : "") to save")
+                .font(.system(size: 11))
+                .foregroundStyle(DesignSystem.textSecondary)
+        }
+    }
+
     // MARK: - Detected Apps
 
     private var detectedAppsSection: some View {
@@ -123,9 +191,9 @@ struct CreateWorkspaceModal: View {
 
                 Spacer()
 
-                Text("\(selectedCount)/\(totalCount) selected")
+                Text("\(selectedCount)/\(maxApps) selected")
                     .font(.system(size: 11))
-                    .foregroundStyle(DesignSystem.textSecondary)
+                    .foregroundStyle(isAtMaxApps ? DesignSystem.primaryBlue : DesignSystem.textSecondary)
             }
 
             // App list
@@ -135,8 +203,13 @@ struct CreateWorkspaceModal: View {
                         app: app,
                         isSelected: Binding(
                             get: { detectedApps[index].isSelected },
-                            set: { detectedApps[index].isSelected = $0 }
-                        )
+                            set: { newValue in
+                                // Only allow selecting if under max, always allow deselecting
+                                if newValue && isAtMaxApps { return }
+                                detectedApps[index].isSelected = newValue
+                            }
+                        ),
+                        isDisabled: !detectedApps[index].isSelected && isAtMaxApps
                     )
                 }
             }
@@ -184,7 +257,7 @@ struct CreateWorkspaceModal: View {
 
             // Save button
             SaveButton(
-                isEnabled: !workspaceName.trimmingCharacters(in: .whitespaces).isEmpty,
+                isEnabled: canSave,
                 action: saveWorkspace
             )
         }
@@ -210,11 +283,31 @@ struct CreateWorkspaceModal: View {
             name: workspaceName.trimmingCharacters(in: .whitespaces),
             apps: selectedApps,
             restoreWindowLayout: restoreWindowLayout,
-            reuseOpenApps: reuseOpenApps
+            reuseOpenApps: reuseOpenApps,
+            displayMode: displayMode
         )
 
         store.addWorkspace(workspace)
         onDismiss()
+
+        // Open editor for the newly created workspace
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            store.selectedWorkspace = workspace
+            store.showingEditor = true
+        }
+    }
+
+    private func enforceMaxApps() {
+        var selectedSoFar = 0
+        for i in detectedApps.indices {
+            if detectedApps[i].isSelected {
+                if selectedSoFar >= maxApps {
+                    detectedApps[i].isSelected = false
+                } else {
+                    selectedSoFar += 1
+                }
+            }
+        }
     }
 
     // MARK: - Sample Data
@@ -238,12 +331,15 @@ struct CreateWorkspaceModal: View {
 struct DetectedAppRow: View {
     let app: DetectedApp
     @Binding var isSelected: Bool
+    var isDisabled: Bool = false
     @State private var isHovered = false
 
     var body: some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                isSelected.toggle()
+            if !isDisabled {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isSelected.toggle()
+                }
             }
         } label: {
             HStack(spacing: 10) {
@@ -284,9 +380,10 @@ struct DetectedAppRow: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
+            .opacity(isDisabled ? 0.4 : 1.0)
             .background(
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(isHovered ? DesignSystem.hoverBackground : Color.clear)
+                    .fill(isHovered && !isDisabled ? DesignSystem.hoverBackground : Color.clear)
             )
         }
         .buttonStyle(.plain)

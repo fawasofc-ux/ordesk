@@ -61,6 +61,22 @@ enum DisplayMode: String, Codable, CaseIterable {
         case .triple: return "display.2"
         }
     }
+
+    var maxApps: Int {
+        switch self {
+        case .single: return 4
+        case .dual: return 8
+        case .triple: return 12
+        }
+    }
+
+    var minApps: Int {
+        switch self {
+        case .single: return 1
+        case .dual: return 2
+        case .triple: return 3
+        }
+    }
 }
 
 enum AppCardSize: String, CaseIterable {
