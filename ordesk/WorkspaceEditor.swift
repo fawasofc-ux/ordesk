@@ -37,17 +37,8 @@ struct WorkspaceEditor: View {
             .frame(maxHeight: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(NSColor.windowBackgroundColor),
-                                Color(NSColor.windowBackgroundColor).opacity(0.97),
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .stroke(Color.black.opacity(0.1), lineWidth: 0.5)
+                    .fill(DesignSystem.surfaceBackground)
+                    .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
                     .shadow(color: .black.opacity(0.2), radius: 40, y: 10)
             )
             .padding(.horizontal, 40)
@@ -95,7 +86,7 @@ struct WorkspaceEditor: View {
                         .frame(width: 28, height: 28)
                         .background(
                             Circle()
-                                .fill(Color.black.opacity(0.05))
+                                .fill(DesignSystem.hoverBackground)
                         )
                 }
                 .buttonStyle(.plain)
@@ -163,10 +154,6 @@ struct WorkspaceEditor: View {
             // Frosted glass
             Rectangle()
                 .fill(.ultraThinMaterial)
-                .overlay(
-                    Rectangle()
-                        .fill(Color.white.opacity(0.7))
-                )
 
             HStack(spacing: 12) {
                 // Templates button
@@ -279,8 +266,8 @@ struct DisplayModeSelector: View {
         .padding(3)
         .background(
             Capsule()
-                .fill(Color(NSColor.controlBackgroundColor))
-                .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
+                .fill(DesignSystem.elevatedSurface)
+                .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
         )
     }
 }
@@ -305,7 +292,7 @@ struct DisplayModeButton: View {
             .padding(.vertical, 6)
             .background(
                 Capsule()
-                    .fill(isActive ? DesignSystem.primaryBlue : (isHovered ? Color.black.opacity(0.04) : Color.clear))
+                    .fill(isActive ? DesignSystem.primaryBlue : (isHovered ? DesignSystem.hoverBackground : Color.clear))
             )
         }
         .buttonStyle(.plain)
@@ -378,8 +365,8 @@ struct DockPillButton: View {
             .padding(.vertical, 8)
             .background(
                 Capsule()
-                    .fill(isHovered ? Color.white : Color.white.opacity(0.9))
-                    .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
+                    .fill(isHovered ? DesignSystem.cardBackground : DesignSystem.cardBackground.opacity(0.9))
+                    .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
                     .shadow(color: .black.opacity(isHovered ? 0.08 : 0.03), radius: isHovered ? 4 : 2, y: 1)
             )
         }
@@ -428,7 +415,7 @@ struct TemplatesPopup: View {
         .background(
             RoundedRectangle(cornerRadius: 10)
                 .fill(.regularMaterial)
-                .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
+                .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
                 .shadow(color: .black.opacity(0.15), radius: 16, y: 8)
         )
     }

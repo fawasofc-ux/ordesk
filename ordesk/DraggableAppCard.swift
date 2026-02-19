@@ -80,7 +80,7 @@ struct DraggableAppCard: View {
                 RoundedRectangle(cornerRadius: 10)
                     .fill(DesignSystem.cardBackground)
                     .stroke(
-                        isHovered ? Color.black.opacity(0.12) : DesignSystem.cardBorder,
+                        isHovered ? DesignSystem.cardBorder : DesignSystem.subtleBorder,
                         lineWidth: 0.5
                     )
                     .shadow(color: .black.opacity(isHovered ? 0.08 : 0.04), radius: isHovered ? 6 : 2, y: isHovered ? 2 : 1)
@@ -122,7 +122,7 @@ struct DraggableAppCard: View {
                 .background(
                     Capsule()
                         .fill(.ultraThinMaterial)
-                        .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
+                        .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
                         .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
                 )
                 .frame(maxWidth: .infinity, alignment: .trailing)
@@ -155,7 +155,7 @@ struct SizePillButton: View {
                 .frame(width: 24, height: 20)
                 .background(
                     Capsule()
-                        .fill(isActive ? DesignSystem.primaryBlue : (isHovered ? Color.black.opacity(0.05) : Color.clear))
+                        .fill(isActive ? DesignSystem.primaryBlue : (isHovered ? DesignSystem.hoverBackground : Color.clear))
                 )
         }
         .buttonStyle(.plain)

@@ -48,8 +48,8 @@ struct CreateWorkspaceModal: View {
             .frame(width: 420)
             .background(
                 RoundedRectangle(cornerRadius: DesignSystem.cornerRadius)
-                    .fill(Color(NSColor.windowBackgroundColor))
-                    .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
+                    .fill(DesignSystem.surfaceBackground)
+                    .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
                     .shadow(color: .black.opacity(0.2), radius: 40, y: 16)
             )
         }
@@ -105,8 +105,8 @@ struct CreateWorkspaceModal: View {
                 .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: DesignSystem.inputRadius)
-                        .fill(Color(NSColor.controlBackgroundColor))
-                        .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
+                        .fill(DesignSystem.elevatedSurface)
+                        .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
                 )
         }
     }
@@ -142,8 +142,8 @@ struct CreateWorkspaceModal: View {
             }
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(NSColor.controlBackgroundColor))
-                    .stroke(Color.black.opacity(0.06), lineWidth: 0.5)
+                    .fill(DesignSystem.elevatedSurface)
+                    .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
             )
         }
     }
@@ -190,7 +190,7 @@ struct CreateWorkspaceModal: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.3))
+        .background(DesignSystem.elevatedSurface.opacity(0.3))
     }
 
     // MARK: - Actions
@@ -257,8 +257,8 @@ struct DetectedAppRow: View {
                     .frame(width: 24, height: 24)
                     .background(
                         Circle()
-                            .fill(Color(NSColor.controlBackgroundColor))
-                            .stroke(Color.black.opacity(0.06), lineWidth: 0.5)
+                            .fill(DesignSystem.elevatedSurface)
+                            .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
                     )
 
                 // App name
@@ -277,8 +277,8 @@ struct DetectedAppRow: View {
                         .padding(.vertical, 2)
                         .background(
                             Capsule()
-                                .fill(Color(NSColor.controlBackgroundColor))
-                                .stroke(Color.black.opacity(0.06), lineWidth: 0.5)
+                                .fill(DesignSystem.elevatedSurface)
+                                .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
                         )
                 }
             }
@@ -307,7 +307,7 @@ struct AppCheckbox: View {
         ZStack {
             RoundedRectangle(cornerRadius: 4)
                 .fill(isChecked ? DesignSystem.primaryBlue : Color.clear)
-                .stroke(isChecked ? DesignSystem.primaryBlue : Color.black.opacity(0.2), lineWidth: 1.5)
+                .stroke(isChecked ? DesignSystem.primaryBlue : DesignSystem.checkboxBorder, lineWidth: 1.5)
                 .frame(width: 16, height: 16)
 
             if isChecked {
@@ -390,7 +390,7 @@ struct CloseButton: View {
                 .frame(width: 24, height: 24)
                 .background(
                     Circle()
-                        .fill(isHovered ? Color.black.opacity(0.06) : Color.black.opacity(0.03))
+                        .fill(isHovered ? DesignSystem.hoverBackground : DesignSystem.subtleOverlay)
                 )
         }
         .buttonStyle(.plain)

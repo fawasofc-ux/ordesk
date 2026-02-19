@@ -19,8 +19,8 @@ struct AppIconCluster: View {
                     .frame(width: iconSize, height: iconSize)
                     .background(
                         RoundedRectangle(cornerRadius: 5)
-                            .fill(Color(NSColor.controlBackgroundColor))
-                            .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
+                            .fill(DesignSystem.cardBackground)
+                            .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
                     )
                     .zIndex(0)
             }
@@ -39,8 +39,8 @@ struct AppMiniIcon: View {
             .frame(width: size, height: size)
             .background(
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(Color.white)
-                    .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
+                    .fill(DesignSystem.cardBackground)
+                    .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
                     .shadow(color: .black.opacity(0.06), radius: 1, y: 0.5)
             )
     }

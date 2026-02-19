@@ -7,7 +7,13 @@ class WorkspaceStore {
     var selectedWorkspace: Workspace?
     var showingEditor = false
     var showingCreateModal = false
+    var showingSettings = false
     var searchText = ""
+    var preferences = Preferences(
+        launchAtLogin: false,
+        defaultRestoreBehavior: .reuseExisting,
+        quickSwitchShortcut: "⌘⇧W"
+    )
 
     var filteredWorkspaces: [Workspace] {
         if searchText.isEmpty {
@@ -34,6 +40,10 @@ class WorkspaceStore {
         if let index = workspaces.firstIndex(where: { $0.id == workspace.id }) {
             workspaces[index] = workspace
         }
+    }
+
+    func clearAllWorkspaces() {
+        workspaces.removeAll()
     }
 
     private func loadSampleData() {

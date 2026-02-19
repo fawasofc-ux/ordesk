@@ -111,9 +111,16 @@ enum DesignSystem {
     static let runningGreen = Color(red: 34/255, green: 197/255, blue: 94/255)      // #22C55E
     static let textPrimary = Color(NSColor.labelColor)
     static let textSecondary = Color(NSColor.secondaryLabelColor)
-    static let cardBackground = Color.white
-    static let cardBorder = Color.black.opacity(0.08)
-    static let hoverBackground = Color.black.opacity(0.03)
+
+    // Adaptive colors for light/dark mode
+    static let cardBackground = Color(NSColor.controlBackgroundColor)
+    static let cardBorder = Color(NSColor.separatorColor)
+    static let hoverBackground = Color(NSColor.quaternaryLabelColor).opacity(0.5)
+    static let surfaceBackground = Color(NSColor.windowBackgroundColor)
+    static let elevatedSurface = Color(NSColor.controlBackgroundColor)
+    static let subtleBorder = Color(NSColor.separatorColor).opacity(0.5)
+    static let subtleOverlay = Color(NSColor.quaternaryLabelColor).opacity(0.3)
+    static let checkboxBorder = Color(NSColor.tertiaryLabelColor)
 
     static let popoverWidth: CGFloat = 360
     static let cornerRadius: CGFloat = 12
