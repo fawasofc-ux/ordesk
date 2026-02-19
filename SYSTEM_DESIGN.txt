@@ -1,0 +1,1166 @@
+Context Switcher — System Design Document
+
+v1.0 | Confidential
+
+Ordesk
+macOS Productivity Utility
+SYSTEM DESIGN DOCUMENT
+Version
+
+Status
+
+Date
+
+1.0 — MVP
+
+Draft
+
+February 2026
+
+© 2026 Context Switcher. All rights reserved.
+
+Page
+
+Context Switcher — System Design Document
+
+v1.0 | Confidential
+
+1. System Overview
+Context Switcher is a lightweight, native macOS menu-bar utility that captures and
+restores complete workspace states — including running applications, window
+positions, layouts, and open documents — with a single click. It eliminates the manual
+overhead of rebuilding work environments when switching between tasks or roles.
+
+Core Design Philosophy
+Local-first. No cloud. No subscriptions. Native APIs only. The app must feel like a natural extension of
+macOS — fast, invisible, and reliable. Every design decision is evaluated against: Does this make
+context switching feel instant?
+
+1.1 System Goals
+Goal
+
+Target Metric
+
+Context switch time
+
+< 2 seconds end-to-end
+
+App launch time
+
+< 300 ms to menu bar ready
+
+Memory footprint
+
+< 150 MB at idle
+
+Offline capability
+
+100% — no network required
+
+Crash safety
+
+Graceful partial restore with retry
+
+macOS compatibility
+
+macOS 13 Ventura and above
+
+1.2 Out of Scope (MVP)
+•
+•
+•
+•
+•
+
+Cloud sync or iCloud integration
+AI-based pattern suggestions
+Team or multi-user sharing
+Browser tab capture (deferred to v1.5)
+Full-screen and Stage Manager window restore
+
+© 2026 Context Switcher. All rights reserved.
+
+Page
+
+Context Switcher — System Design Document
+
+v1.0 | Confidential
+
+2. High-Level Architecture
+The system is structured as a single-process macOS application with five loosely
+coupled modules. Each module has a single responsibility and communicates through
+clearly defined interfaces. There is no network layer — all data flows remain on-device.
+
+2.1 Layered Architecture Diagram
+
+UI Layer
+SwiftUI · Menu Bar App · Shortcut Launcher · Context Editor
+
+▼
+
+Workspace Controller
+Orchestrates Capture → Persist → Restore lifecycle
+
+▼
+
+Capture Engine
+Accessibility API · NSWorkspace · Window Enumeration
+
+▼
+
+Restore Engine
+App Launcher · Window Positioner · Timing Orchestrator
+
+▼
+
+Persistence Layer
+JSON Storage · File I/O · ~/Library/Application Support
+
+2.2 Module Responsibilities
+
+© 2026 Context Switcher. All rights reserved.
+
+Page
+
+Context Switcher — System Design Document
+
+v1.0 | Confidential
+
+Module
+
+Responsibility
+
+Key Technologies
+
+UI Layer
+
+All user-facing surfaces and global
+shortcut registration
+
+SwiftUI, AppKit, NSStatusBar
+
+Workspace
+Controller
+
+Coordinates capture and restore
+sequences; holds application state
+
+Swift, Combine / async-await
+
+Capture Engine
+
+Reads running apps, window frames,
+displays, and document URLs
+
+AXUIElement, NSWorkspace,
+NSScreen
+
+Restore Engine
+
+Relaunches apps, repositions windows,
+handles timing and retries
+
+NSWorkspace, AXUIElement,
+DispatchQueue
+
+Persistence Layer
+
+Serializes and stores workspace
+snapshots as JSON on disk
+
+Codable, FileManager, JSONEncoder
+
+© 2026 Context Switcher. All rights reserved.
+
+Page
+
+Context Switcher — System Design Document
+
+v1.0 | Confidential
+
+3. Module Specifications
+3.1 UI Layer
+The UI layer is deliberately minimal. Context Switcher lives in the macOS menu bar — it
+never hijacks the Dock or demands full-screen attention. Two surfaces exist: the menu
+itself (primary) and the context editor sheet (secondary).
+
+3.1.1 Menu Bar Interface
+• NSStatusItem with a custom icon in the system menu bar
+• Popover or NSMenu showing saved workspaces on click
+• Bottom section: 'Save Current Workspace…' and 'Edit Workspaces…'
+• Active workspace shown with a checkmark indicator
+• Switching a workspace triggers the Workspace Controller immediately
+3.1.2 Global Keyboard Shortcut
+• Default shortcut: Control + Option + Space
+• Opens a Spotlight-style floating search window
+• User types workspace name — list filters in real time
+• Return key activates selected workspace
+• Escape dismisses without action
+3.1.3 Context Editor (SwiftUI Sheet)
+• List of all saved workspaces with rename / delete / duplicate controls
+• Per-workspace app list: each captured app shown with its icon and bundle ID
+• Toggle per-app to include or exclude from restore
+• 'Update Snapshot' button re-captures current state into selected workspace
+
+3.2 Workspace Controller
+The Workspace Controller is the application's central coordinator. It owns the list of
+workspaces in memory, delegates to the Capture Engine or Restore Engine as needed,
+and ensures persistence is called at the right moments.
+
+© 2026 Context Switcher. All rights reserved.
+
+Page
+
+Context Switcher — System Design Document
+
+v1.0 | Confidential
+
+// Workspace Controller — Core Interface
+
+class WorkspaceController: ObservableObject {
+@Published var workspaces: [Workspace] = []
+@Published var activeWorkspaceID: UUID?
+
+func captureCurrentWorkspace(name: String) async throws -> Workspace
+func restoreWorkspace(_ workspace: Workspace) async throws
+func deleteWorkspace(id: UUID)
+func renameWorkspace(id: UUID, newName: String)
+func duplicateWorkspace(id: UUID) -> Workspace
+}
+
+State Machine
+State
+
+Description
+
+Transitions To
+
+Idle
+
+No operation in progress; menu bar active
+
+Capturing, Restoring
+
+Capturing
+
+Reading app/window state from system
+
+Persisting, Idle (on error)
+
+Persisting
+
+Writing snapshot JSON to disk
+
+Idle
+
+Restoring
+
+Launching apps and repositioning windows Idle (success or partial)
+
+3.3 Capture Engine
+The Capture Engine is the most technically complex module. It uses the macOS
+Accessibility API to introspect the state of other running applications — something not
+possible through any public AppKit mechanism.
+
+3.3.1 Capture Sequence
+Ste Action
+p
+
+API Used
+
+1
+
+Verify Accessibility permission is granted
+
+AXIsProcessTrustedWithOptions
+
+2
+
+Enumerate all regular UI applications
+
+NSWorkspace.shared.runningApplications
+
+© 2026 Context Switcher. All rights reserved.
+
+Page
+
+Context Switcher — System Design Document
+
+v1.0 | Confidential
+
+Ste Action
+p
+
+API Used
+
+3
+
+Create AX reference per application
+
+AXUIElementCreateApplication(pid)
+
+4
+
+Fetch all windows for each application
+
+kAXWindowsAttribute
+
+5
+
+Extract position and size per window
+
+kAXPositionAttribute, kAXSizeAttribute
+
+6
+
+Map each window to its display
+
+NSScreen.screens + frame intersection
+
+7
+
+Capture document URL (if exposed)
+
+kAXDocumentAttribute
+
+8
+
+Serialize all data into Workspace model
+
+Swift Codable
+
+3.3.2 Key Capture Code Pattern
+func captureSnapshot() async -> [ApplicationState] {
+let apps = NSWorkspace.shared.runningApplications
+.filter { $0.activationPolicy == .regular }
+
+return apps.compactMap { app in
+let axApp = AXUIElementCreateApplication(app.processIdentifier)
+let windows = fetchWindows(from: axApp)
+guard !windows.isEmpty else { return nil }
+return ApplicationState(
+bundleID: app.bundleIdentifier ?? "",
+windows: windows.compactMap { extractWindowState($0) }
+)
+}
+}
+
+3.4 Restore Engine
+The Restore Engine reconstructs a saved workspace by relaunching missing
+applications and repositioning all windows to their saved frames. Timing is the critical
+challenge here — the engine must wait for apps to fully launch before attempting window
+manipulation.
+
+3.4.1 Restore Sequence
+
+© 2026 Context Switcher. All rights reserved.
+
+Page
+
+Context Switcher — System Design Document
+
+v1.0 | Confidential
+
+Ste Action
+p
+
+Timing
+
+1
+
+Compare saved apps vs currently running
+apps
+
+Immediate
+
+2
+
+Launch all missing applications via
+NSWorkspace
+
+Async — fire all in parallel
+
+3
+
+Wait for each app's window to appear
+
+Poll with 100ms backoff, max 3s
+
+4
+
+Reposition all windows to saved frames
+
+After per-app window confirmed
+
+5
+
+Move windows to correct display
+
+After positioning
+
+6
+
+Activate the saved frontmost application
+
+Final step
+
+3.4.2 Window Positioning Code Pattern
+func setFrame(_ frame: CGRect, for window: AXUIElement) {
+var origin = frame.origin
+var size
+
+= frame.size
+
+guard let posValue
+
+= AXValueCreate(.cgPoint, &origin),
+
+let sizeValue = AXValueCreate(.cgSize,
+
+&size)
+
+else { return }
+
+AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, posValue)
+AXUIElementSetAttributeValue(window, kAXSizeAttribute
+
+as CFString, sizeValue)
+
+}
+
+3.4.3 Edge Cases Handled
+• App already running — reuse existing instance, do not relaunch
+• App fails to launch within 3 seconds — mark as partial restore, continue
+• Window not accessible immediately — exponential backoff retry up to 1.5s
+• Fullscreen windows — detected and skipped gracefully
+• Minimized windows — restored to saved frame, unminimized
+• Display disconnected — window placed on primary display as fallback
+
+© 2026 Context Switcher. All rights reserved.
+
+Page
+
+Context Switcher — System Design Document
+
+v1.0 | Confidential
+
+4. Data Models
+4.1 Core Data Structures
+
+© 2026 Context Switcher. All rights reserved.
+
+Page
+
+Context Switcher — System Design Document
+
+v1.0 | Confidential
+
+// Top-level workspace container
+struct Workspace: Codable, Identifiable {
+let id: UUID
+var name: String
+var icon: String?
+
+// SF Symbol name for menu display
+
+var createdAt: Date
+var updatedAt: Date
+var applications: [ApplicationState]
+var displayConfiguration: [DisplaySnapshot]
+var frontmostBundleID: String?
+}
+
+// State of a single application
+struct ApplicationState: Codable {
+let bundleID: String
+let windows: [WindowState]
+var shouldClose: Bool
+
+// Close on switch-away toggle
+
+}
+
+// State of a single window
+struct WindowState: Codable {
+let frame: CGRect
+let screenID: CGDirectDisplayID
+let documentURL: URL?
+
+// Open file path if exposed
+
+let title: String?
+}
+
+// Multi-monitor display record
+struct DisplaySnapshot: Codable {
+let displayID: CGDirectDisplayID
+let frame: CGRect
+let scaleFactor: CGFloat
+}
+© 2026 Context Switcher. All rights reserved.
+
+Page
+
+Context Switcher — System Design Document
+
+v1.0 | Confidential
+
+4.2 JSON Storage Format
+Each workspace is persisted as a standalone JSON file. This makes workspaces easy to
+back up, inspect, and future-proof against schema changes.
+
+{
+"id": "E3B4C2D1-...",
+"name": "Deep Work",
+"icon": "laptopcomputer",
+"createdAt": "2026-02-17T09:00:00Z",
+"updatedAt": "2026-02-17T11:30:00Z",
+"frontmostBundleID": "com.apple.dt.Xcode",
+"applications": [
+{
+"bundleID": "com.apple.dt.Xcode",
+"shouldClose": false,
+"windows": [
+{ "frame": {"x":0,"y":25,"w":1440,"h":875}, "screenID": 69733120 }
+]
+}
+]
+}
+
+4.3 File System Layout
+
+© 2026 Context Switcher. All rights reserved.
+
+Page
+
+Context Switcher — System Design Document
+
+v1.0 | Confidential
+
+~/Library/Application Support/ContextSwitcher/
+├── settings.json
+
+# Global app preferences
+
+├── workspaces/
+│
+
+├── deep-work.json
+
+│
+
+├── client-calls.json
+
+│
+
+└── personal-admin.json
+
+└── logs/
+└── restore.log
+
+© 2026 Context Switcher. All rights reserved.
+
+# Restore session diagnostics
+
+Page
+
+Context Switcher — System Design Document
+
+v1.0 | Confidential
+
+5. Permissions & Privacy
+5.1 Required Permissions
+Permission
+
+Why Required
+
+When Requested
+
+User Impact
+
+Accessibility Access
+
+Read and control windows of
+other apps via AXUIElement
+
+First launch —
+system dialog
+
+One-time grant;
+persists across
+reboots
+
+Automation (optional)
+
+Send AppleScript to Safari/
+Chrome for tab capture
+
+When browser tab
+feature is enabled
+
+Optional; deferred to
+v1.5
+
+5.2 Privacy Guarantees
+•
+•
+•
+•
+•
+•
+
+Zero network traffic — no data ever leaves the device
+No screen recording permission required or requested
+Window titles captured only when user initiates snapshot
+No keylogging or input monitoring of any kind
+All data stored under ~/Library/Application Support — user-owned directory
+App Store sandboxing compliant for all captured data
+
+Info.plist Required Key
+NSAppleEventsUsageDescription — Value: "Context Switcher uses Accessibility to read and arrange
+your application windows when you switch workspaces. No data leaves your Mac."
+
+© 2026 Context Switcher. All rights reserved.
+
+Page
+
+Context Switcher — System Design Document
+
+v1.0 | Confidential
+
+6. Key macOS APIs
+6.1 API Usage Matrix
+Feature
+
+API / Framework
+
+Notes
+
+Enumerate running apps
+
+NSWorkspace.shared.runningApplic Filter by .regular activationPolicy
+ations
+
+Launch application
+
+NSWorkspace.shared.openApplicati
+on(at:configuration:)
+
+Async with completionHandler
+
+AX app reference
+
+AXUIElementCreateApplication(pid)
+
+Requires Accessibility permission
+
+Get window list
+
+AXUIElementCopyAttributeValue +
+kAXWindowsAttribute
+
+Returns [AXUIElement]
+
+Get window position
+
+kAXPositionAttribute → AXValue →
+CGPoint
+
+Use AXValueGetValue to unpack
+
+Get window size
+
+kAXSizeAttribute → AXValue →
+CGSize
+
+Use AXValueGetValue to unpack
+
+Set window position
+
+AXUIElementSetAttributeValue +
+kAXPositionAttribute
+
+Requires Accessibility permission
+
+Set window size
+
+AXUIElementSetAttributeValue +
+kAXSizeAttribute
+
+Requires Accessibility permission
+
+Get display info
+
+NSScreen.screens,
+NSScreen.frame
+
+Coordinate system is global
+
+Map window → display
+
+NSScreen.screens.first
+Uses CoreGraphics global space
+{ $0.frame.intersects(windowFrame)
+}
+
+Display UUID
+
+NSDeviceDescriptionKey("NSScree
+nNumber")
+
+App launch notification
+
+NSWorkspace.didLaunchApplication For post-launch window timing
+Notification
+
+Global shortcut
+
+NSEvent.addGlobalMonitorForEvent Requires no special permission
+s(matching:)
+
+Use CGDirectDisplayID
+
+6.2 Accessibility Trust Check
+
+© 2026 Context Switcher. All rights reserved.
+
+Page
+
+Context Switcher — System Design Document
+
+v1.0 | Confidential
+
+func checkAndRequestAccessibility() -> Bool {
+let options: CFDictionary = [
+kAXTrustedCheckOptionPrompt.takeRetainedValue() as String: true
+] as CFDictionary
+return AXIsProcessTrustedWithOptions(options)
+}
+
+// Call once at launch — if false, show permission guidance UI
+// macOS shows the system prompt automatically
+
+© 2026 Context Switcher. All rights reserved.
+
+Page
+
+Context Switcher — System Design Document
+
+v1.0 | Confidential
+
+7. Error Handling & Resilience
+7.1 Error Categories
+Error Type
+
+Cause
+
+Recovery Strategy
+
+Permission Denied
+
+Accessibility not granted
+
+Show guidance sheet; retry on re-grant
+
+App Launch Failure
+
+App bundle missing or
+corrupted
+
+Skip app; mark workspace as partial
+
+Window Not Found
+
+App running but window not
+ready
+
+Retry with backoff up to 1.5s; then skip
+
+Display Mismatch
+
+Monitor configuration changed
+
+Place window on primary display
+
+AX Attribute
+Unavailable
+
+App does not expose standard
+AX tree
+
+Skip window; continue restore
+
+JSON Parse Failure
+
+Corrupted workspace file
+
+Quarantine file; show error toast
+
+Fullscreen Window
+
+Window in fullscreen or Stage
+Manager
+
+Skip gracefully; log for debugging
+
+7.2 Partial Restore UX
+When a restore cannot fully complete, the app must communicate clearly without
+blocking the user. The pattern is:
+•
+•
+•
+•
+
+Proceed with all successfully positioned windows
+Display a non-blocking notification: '3 of 4 apps restored. Xcode could not be reached.'
+Log full diagnostic to ~/Library/Application Support/ContextSwitcher/logs/restore.log
+Never show a modal blocking dialog during restore
+
+© 2026 Context Switcher. All rights reserved.
+
+Page
+
+Context Switcher — System Design Document
+
+v1.0 | Confidential
+
+8. Performance Design
+8.1 Performance Targets
+Operation
+
+Target
+
+Strategy
+
+Menu bar launch
+
+< 300 ms
+
+No heavy init; lazy-load workspaces from disk
+
+Workspace capture
+
+< 500 ms
+
+Parallel AX enumeration per app
+
+Workspace restore (all
+running)
+
+< 1 second
+
+Parallel window repositioning
+
+Workspace restore (cold
+launch)
+
+< 2 seconds
+
+Parallel app launch + async window wait
+
+Memory at idle
+
+< 150 MB
+
+No retained AX references; release after use
+
+CPU at idle
+
+< 0.1%
+
+No timers or observers active when idle
+
+8.2 Concurrency Model
+All UI updates execute on the main actor. Capture and restore operations run on
+background task groups to avoid blocking the menu bar. AX API calls are synchronous
+by nature — they are wrapped in async tasks to prevent main thread stalls.
+func captureAllApps() async -> [ApplicationState] {
+await withTaskGroup(of: ApplicationState?.self) { group in
+for app in runningApps {
+group.addTask { await self.captureApp(app) }
+}
+return await group.compactMap { $0 }.reduce(into: []) { $0.append($1) }
+}
+}
+
+© 2026 Context Switcher. All rights reserved.
+
+Page
+
+Context Switcher — System Design Document
+
+v1.0 | Confidential
+
+9. App Store Compliance
+9.1 Sandboxing
+Entitlement
+
+Value
+
+Reason
+
+com.apple.security.app-sandbox
+
+true
+
+Required for Mac App Store distribution
+
+com.apple.security.automation.appleevents
+
+true
+
+For optional browser AppleScript (v1.5)
+
+com.apple.security.files.userselected.read-write
+
+true
+
+Allow user to export/import workspaces
+
+9.2 Compliance Notes
+•
+•
+•
+•
+•
+
+Accessibility permission is a standard system entitlement — approved category for
+window management tools
+No private or undocumented APIs used; App Review safe
+No background network requests — passes App Store privacy audit easily
+Data stored exclusively in designated container directories
+All third-party dependencies: zero (pure Swift, zero SPM packages needed for MVP)
+
+© 2026 Context Switcher. All rights reserved.
+
+Page
+
+Context Switcher — System Design Document
+
+v1.0 | Confidential
+
+10. Future Phase Roadmap
+10.1 Phase 2 — Smart Features (v1.5)
+Feature
+
+Technical Approach
+
+Complexity
+
+Browser tab restore
+
+AppleScript to Safari/Chrome for URL
+capture
+
+Medium
+
+Passive workspace
+suggestions
+
+On-device pattern detection via CoreML
+
+High
+
+Calendar-triggered switching
+
+EventKit integration to auto-switch on
+meeting start
+
+Medium
+
+Per-context Focus Mode
+
+FocusFilter API (macOS 13+)
+
+Low
+
+AppleScript / Shortcuts hooks NSUserScriptingSpecification
+
+Low
+
+10.2 Phase 3 — Platform Expansion (v2.0)
+Feature
+
+Technical Approach
+
+Complexity
+
+iCloud Sync
+
+CloudKit private database for workspace
+JSON
+
+High
+
+Multi-Mac sync
+
+CloudKit + conflict resolution logic
+
+Very High
+
+Shortcut app integration
+
+App Intent framework
+
+Low
+
+Context Switcher Pro tier
+
+StoreKit 2 in-app purchase gate
+
+Low
+
+© 2026 Context Switcher. All rights reserved.
+
+Page
+
+Context Switcher — System Design Document
+
+v1.0 | Confidential
+
+11. Non-Functional Requirements Summary
+Category
+
+Requirement
+
+Acceptance Criteria
+
+Performance
+
+Context switch completion
+
+< 2 seconds including app launch
+
+Performance
+
+Menu bar launch
+
+< 300 ms cold start
+
+Reliability
+
+Crash rate
+
+< 0.1% of restore operations
+
+Reliability
+
+Partial restore communication
+
+User informed within 500 ms of issue
+
+Privacy
+
+Network requests
+
+Zero outbound requests
+
+Privacy
+
+Data collection
+
+None — no analytics, no telemetry in
+MVP
+
+Compatibility
+
+macOS version
+
+macOS 13 Ventura minimum
+
+Compatibility
+
+Chip architecture
+
+Universal binary (Apple Silicon + Intel)
+
+Usability
+
+Permission flow
+
+Single system-native prompt; no custom
+gates
+
+Usability
+
+Workspace limit (free tier)
+
+1 workspace; Pro unlocks unlimited
+
+Maintainability
+
+Codebase
+
+Pure Swift; zero third-party dependencies
+in MVP
+
+Distribution
+
+App Store
+
+Sandboxed; notarized; no private APIs
+
+© 2026 Context Switcher. All rights reserved.
+
+Page
+
+Context Switcher — System Design Document
+
+v1.0 | Confidential
+
+12. Glossary
+Term
+
+Definition
+
+AXUIElement
+
+Core data type in the macOS Accessibility API representing a UI element
+of any application
+
+Bundle ID
+
+Reverse-DNS string uniquely identifying an application (e.g.
+com.apple.dt.Xcode)
+
+CGDirectDisplayID
+
+Integer identifier for a physical display in macOS CoreGraphics
+
+Context / Workspace
+
+A named snapshot of running apps, window positions, and layout for a
+specific task or role
+
+Menu Bar Utility
+
+A macOS app that lives exclusively in the system menu bar with no Dock
+presence
+
+NSWorkspace
+
+AppKit class providing access to running applications and app launch APIs
+
+Partial Restore
+
+Condition where some but not all apps/windows could be restored;
+handled gracefully
+
+Snapshot
+
+A point-in-time capture of the user's full workspace state, serialized to
+JSON
+
+Stage Manager
+
+macOS 13+ window management feature; fullscreen Stage Manager
+windows are excluded from v1 capture
+
+End of System Design Document
+Next: Wireframes · App Flow · SRS Finalization
+
+© 2026 Context Switcher. All rights reserved.
+
+Page
+
+

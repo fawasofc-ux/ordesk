@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xcodebuild:*)",
+      "Bash(git -C /Users/fawaz.faiz/Documents/Projects/ordesk add:*)",
+      "Bash(git commit:*)",
+      "Bash(git -C /Users/fawaz.faiz/Documents/Projects/ordesk status)",
+      "Bash(git -C /Users/fawaz.faiz/Documents/Projects/ordesk diff)",
+      "Bash(git -C /Users/fawaz.faiz/Documents/Projects/ordesk log --oneline -5)",
+      "Bash(git -C /Users/fawaz.faiz/Documents/Projects/ordesk commit -m \"$\\(cat <<''EOF''\nAdd display mode selector with app limits to Create Workspace modal\n\n- Add maxApps/minApps properties to DisplayMode \\(Single: 4/1, Dual: 8/2, Triple: 12/3\\)\n- Add display mode segmented control to CreateWorkspaceModal\n- Enforce max app selection: disable unselected rows when at limit\n- Auto-deselect excess apps when switching to a lower display mode\n- Enable Save button only when min app threshold is met\n- Save now opens the Workspace Editor for the newly created workspace\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C /Users/fawaz.faiz/Documents/Projects/ordesk push -u origin bugfixes_improvements)",
+      "Bash(git -C /Users/fawaz.faiz/Documents/Projects/ordesk diff --stat)",
+      "Bash(git -C /Users/fawaz.faiz/Documents/Projects/ordesk commit -m \"$\\(cat <<''EOF''\nFix Save & Edit button staying disabled when apps are selected\n\n- Remove workspace name requirement from canSave — button now enables\n  based solely on app selection meeting min/max criteria\n- Auto-generate default name \\(\"Workspace 1\", etc.\\) when left blank\n- Add onAppear enforceMaxApps to trim pre-selected apps on modal open\n- Add withinMax check to canSave for extra safety\n- Improve dismiss → editor transition with explicit state reset\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C /Users/fawaz.faiz/Documents/Projects/ordesk push)",
+      "Bash(textutil -convert txt:*)",
+      "Bash(# Try extracting raw text from the protobuf IWA files strings /tmp/ordesk_pages/Index/Document.iwa)",
+      "Bash(# Extract all readable strings from all IWA files, filter for substantial text for f in /tmp/ordesk_pages/Index/*.iwa /tmp/ordesk_pages/Index/Tables/*.iwa; do strings -n 10 \"\"$f\"\" done)",
+      "Bash(brew install:*)",
+      "Bash(pdftotext:*)"
+    ]
+  }
+}

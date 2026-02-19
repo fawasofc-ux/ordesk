@@ -1,13 +1,26 @@
 import SwiftUI
+import AppKit
 
 // MARK: - Detected App (local model for the create flow)
 
 struct DetectedApp: Identifiable {
-    let id = UUID().uuidString
+    let id: String
     let name: String
-    let icon: String
+    let icon: String           // SF Symbol fallback
+    let appIcon: NSImage?      // Real app icon from system
+    let bundleID: String?
     let isRunning: Bool
     var isSelected: Bool
+
+    init(id: String = UUID().uuidString, name: String, icon: String = "app", appIcon: NSImage? = nil, bundleID: String? = nil, isRunning: Bool = false, isSelected: Bool = false) {
+        self.id = id
+        self.name = name
+        self.icon = icon
+        self.appIcon = appIcon
+        self.bundleID = bundleID
+        self.isRunning = isRunning
+        self.isSelected = isSelected
+    }
 }
 
 // MARK: - Create Workspace Modal
@@ -19,7 +32,9 @@ struct CreateWorkspaceModal: View {
     @State private var restoreWindowLayout = true
     @State private var reuseOpenApps = true
     @State private var displayMode: DisplayMode = .single
-    @State private var detectedApps: [DetectedApp] = Self.sampleDetectedApps()
+    @State private var detectedApps: [DetectedApp] = []
+    @State private var isLoadingApps = true
+    @State private var needsPermission = false
 
     var onDismiss: () -> Void
 
@@ -60,9 +75,14 @@ struct CreateWorkspaceModal: View {
             VStack(spacing: 0) {
                 modalHeader
                 Divider().opacity(0.4)
-                modalBody
-                Divider().opacity(0.4)
-                modalFooter
+
+                if needsPermission {
+                    permissionView
+                } else {
+                    modalBody
+                    Divider().opacity(0.4)
+                    modalFooter
+                }
             }
             .frame(width: 420)
             .background(
@@ -72,9 +92,60 @@ struct CreateWorkspaceModal: View {
                     .shadow(color: .black.opacity(0.2), radius: 40, y: 16)
             )
             .onAppear {
-                enforceMaxApps()
+                loadApps()
             }
         }
+    }
+
+    // MARK: - Permission View
+
+    private var permissionView: some View {
+        VStack(spacing: 16) {
+            Spacer()
+
+            Image(systemName: "lock.shield")
+                .font(.system(size: 40))
+                .foregroundStyle(DesignSystem.primaryBlue)
+
+            VStack(spacing: 6) {
+                Text("Accessibility Permission Required")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(DesignSystem.textPrimary)
+
+                Text("Ordesk needs Accessibility access to detect running apps and manage window positions.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(DesignSystem.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+            }
+
+            Button {
+                Task { await grantPermissionAndLoad() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "gear")
+                        .font(.system(size: 12))
+                    Text("Open System Settings")
+                        .font(.system(size: 13, weight: .medium))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 9)
+                .background(
+                    RoundedRectangle(cornerRadius: DesignSystem.buttonRadius)
+                        .fill(DesignSystem.primaryBlue)
+                )
+            }
+            .buttonStyle(.plain)
+
+            Text("Grant access in System Settings, then return here.")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+
+            Spacer()
+        }
+        .frame(height: 300)
+        .padding(.horizontal, 20)
     }
 
     // MARK: - Header
@@ -105,7 +176,11 @@ struct CreateWorkspaceModal: View {
                 displayModeSection
 
                 // Detected apps list
-                detectedAppsSection
+                if isLoadingApps {
+                    loadingView
+                } else {
+                    detectedAppsSection
+                }
 
                 // Options
                 optionsSection
@@ -113,6 +188,20 @@ struct CreateWorkspaceModal: View {
             .padding(20)
         }
         .frame(maxHeight: 480)
+    }
+
+    // MARK: - Loading
+
+    private var loadingView: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            Text("Detecting running apps…")
+                .font(.system(size: 12))
+                .foregroundStyle(DesignSystem.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 30)
     }
 
     // MARK: - Name Input
@@ -149,7 +238,6 @@ struct CreateWorkspaceModal: View {
                     Button {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             displayMode = mode
-                            // Deselect excess apps when switching to a lower mode
                             enforceMaxApps()
                         }
                     } label: {
@@ -208,7 +296,6 @@ struct CreateWorkspaceModal: View {
                         isSelected: Binding(
                             get: { detectedApps[index].isSelected },
                             set: { newValue in
-                                // Only allow selecting if under max, always allow deselecting
                                 if newValue && isAtMaxApps { return }
                                 detectedApps[index].isSelected = newValue
                             }
@@ -271,6 +358,49 @@ struct CreateWorkspaceModal: View {
         .background(DesignSystem.elevatedSurface.opacity(0.3))
     }
 
+    // MARK: - App Loading
+
+    private func loadApps() {
+        // Fast path: already trusted (live check)
+        if AccessibilityPermissionManager.isTrusted() {
+            AccessibilityPermissionManager.persistGrant()
+            populateRealApps()
+            return
+        }
+        // Previously granted but user revoked — clear stale grant
+        if AccessibilityPermissionManager.hasPersistedGrant() {
+            AccessibilityPermissionManager.clearGrant()
+        }
+        isLoadingApps = false
+        needsPermission = true
+    }
+
+    private func grantPermissionAndLoad() async {
+        await AccessibilityPermissionManager.waitUntilTrusted()
+        await MainActor.run {
+            needsPermission = false
+            isLoadingApps = true
+            populateRealApps()
+        }
+    }
+
+    private func populateRealApps() {
+        let running = RunningAppsService.runningApps()
+        detectedApps = running.map { info in
+            DetectedApp(
+                id: info.id,
+                name: info.name,
+                icon: AppIconMapper.sfSymbol(for: info.name),
+                appIcon: info.icon,
+                bundleID: info.id,
+                isRunning: info.isRunning,
+                isSelected: true
+            )
+        }
+        enforceMaxApps()
+        isLoadingApps = false
+    }
+
     // MARK: - Actions
 
     private func saveWorkspace() {
@@ -284,7 +414,6 @@ struct CreateWorkspaceModal: View {
                 )
             }
 
-        // Use entered name or generate a default
         let trimmedName = workspaceName.trimmingCharacters(in: .whitespaces)
         let finalName = trimmedName.isEmpty ? "Workspace \(store.workspaces.count + 1)" : trimmedName
 
@@ -298,7 +427,6 @@ struct CreateWorkspaceModal: View {
 
         store.addWorkspace(workspace)
 
-        // Dismiss the create modal first, then open editor
         store.showingCreateModal = false
         onDismiss()
 
@@ -319,21 +447,6 @@ struct CreateWorkspaceModal: View {
                 }
             }
         }
-    }
-
-    // MARK: - Sample Data
-
-    static func sampleDetectedApps() -> [DetectedApp] {
-        [
-            DetectedApp(name: "Chrome", icon: "globe", isRunning: true, isSelected: true),
-            DetectedApp(name: "VS Code", icon: "chevron.left.forwardslash.chevron.right", isRunning: true, isSelected: true),
-            DetectedApp(name: "Figma", icon: "paintpalette", isRunning: true, isSelected: true),
-            DetectedApp(name: "Slack", icon: "message", isRunning: true, isSelected: true),
-            DetectedApp(name: "Spotify", icon: "music.note", isRunning: true, isSelected: true),
-            DetectedApp(name: "Terminal", icon: "terminal", isRunning: true, isSelected: true),
-            DetectedApp(name: "Notes", icon: "doc.text", isRunning: false, isSelected: false),
-            DetectedApp(name: "Calendar", icon: "calendar", isRunning: false, isSelected: false),
-        ]
     }
 }
 
@@ -357,16 +470,24 @@ struct DetectedAppRow: View {
                 // Checkbox
                 AppCheckbox(isChecked: isSelected)
 
-                // App icon
-                Image(systemName: app.icon)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 24, height: 24)
-                    .background(
-                        Circle()
-                            .fill(DesignSystem.elevatedSurface)
-                            .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
-                    )
+                // App icon — real icon or SF Symbol fallback
+                if let nsImage = app.appIcon {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 24, height: 24)
+                        .clipShape(RoundedRectangle(cornerRadius: 5))
+                } else {
+                    Image(systemName: app.icon)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 24, height: 24)
+                        .background(
+                            Circle()
+                                .fill(DesignSystem.elevatedSurface)
+                                .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
+                        )
+                }
 
                 // App name
                 Text(app.name)
