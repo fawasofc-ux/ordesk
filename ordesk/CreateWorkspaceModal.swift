@@ -55,9 +55,10 @@ struct CreateWorkspaceModal: View {
     }
 
     private var canSave: Bool {
+        let nameValid = !workspaceName.trimmingCharacters(in: .whitespaces).isEmpty
         let meetsMin = selectedCount >= minApps
         let withinMax = selectedCount <= maxApps
-        return meetsMin && withinMax
+        return nameValid && meetsMin && withinMax
     }
 
     private var isAtMaxApps: Bool {
@@ -409,6 +410,7 @@ struct CreateWorkspaceModal: View {
             .map { detected in
                 AppInstance(
                     name: detected.name,
+                    bundleIdentifier: detected.bundleID ?? "",
                     icon: detected.icon,
                     isRunning: detected.isRunning
                 )

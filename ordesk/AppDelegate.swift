@@ -1,6 +1,13 @@
 import SwiftUI
 import AppKit
 
+// MARK: - Borderless window that accepts keyboard input
+
+private class KeyableWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
@@ -138,7 +145,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let hostingView = NSHostingController(rootView: editorView)
 
-        let window = NSWindow(
+        let window = KeyableWindow(
             contentRect: screenFrame,
             styleMask: [.borderless],
             backing: .buffered,
@@ -186,7 +193,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let hostingView = NSHostingController(rootView: modalView)
 
-        let window = NSWindow(
+        let window = KeyableWindow(
             contentRect: screen.frame,
             styleMask: [.borderless],
             backing: .buffered,
@@ -232,7 +239,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let hostingView = NSHostingController(rootView: settingsView)
 
-        let window = NSWindow(
+        let window = KeyableWindow(
             contentRect: screen.frame,
             styleMask: [.borderless],
             backing: .buffered,
