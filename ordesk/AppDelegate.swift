@@ -1,6 +1,13 @@
 import SwiftUI
 import AppKit
 
+// MARK: - Borderless window that accepts keyboard input
+
+private class KeyableWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
@@ -8,6 +15,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var eventMonitor: Any?
     private var editorWindow: NSWindow?
     private var createModalWindow: NSWindow?
+    private var settingsWindow: NSWindow?
     private var storeObservation: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -75,8 +83,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        func observeSettings() {
+            withObservationTracking {
+                _ = store.showingSettings
+            } onChange: { [weak self] in
+                DispatchQueue.main.async {
+                    self?.handleSettingsToggle()
+                    observeSettings()
+                }
+            }
+        }
+
         observeEditor()
         observeCreateModal()
+        observeSettings()
     }
 
     private func handleEditorToggle() {
@@ -85,6 +105,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             openEditorWindow(for: workspace)
         } else {
             closeEditorWindow()
+        }
+    }
+
+    private func handleSettingsToggle() {
+        if store.showingSettings {
+            popover?.performClose(nil)
+            openSettingsWindow()
+        } else {
+            closeSettingsWindow()
         }
     }
 
@@ -116,7 +145,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let hostingView = NSHostingController(rootView: editorView)
 
-        let window = NSWindow(
+        let window = KeyableWindow(
             contentRect: screenFrame,
             styleMask: [.borderless],
             backing: .buffered,
@@ -164,7 +193,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let hostingView = NSHostingController(rootView: modalView)
 
-        let window = NSWindow(
+        let window = KeyableWindow(
             contentRect: screen.frame,
             styleMask: [.borderless],
             backing: .buffered,
@@ -193,6 +222,52 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func closeCreateModalWindow() {
         createModalWindow?.orderOut(nil)
         createModalWindow = nil
+    }
+
+    func openSettingsWindow() {
+        closeSettingsWindow()
+
+        guard let screen = NSScreen.main else { return }
+
+        let settingsView = SettingsView(
+            onDismiss: { [weak self] in
+                self?.store.showingSettings = false
+                self?.closeSettingsWindow()
+            }
+        )
+        .environment(store)
+
+        let hostingView = NSHostingController(rootView: settingsView)
+
+        let window = KeyableWindow(
+            contentRect: screen.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hostingView
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.level = .floating
+        window.hasShadow = false
+        window.setFrame(screen.frame, display: true)
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+
+        NSApp.setActivationPolicy(.regular)
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            NSApp.setActivationPolicy(.accessory)
+            window.makeKeyAndOrderFront(nil)
+        }
+
+        settingsWindow = window
+    }
+
+    func closeSettingsWindow() {
+        settingsWindow?.orderOut(nil)
+        settingsWindow = nil
     }
 
     @objc private func togglePopover() {

@@ -1,5 +1,7 @@
 import SwiftUI
-import Combine
+import Foundation
+
+// MARK: - Workspace Store (JSON-persisted)
 
 @Observable
 class WorkspaceStore {
@@ -7,7 +9,33 @@ class WorkspaceStore {
     var selectedWorkspace: Workspace?
     var showingEditor = false
     var showingCreateModal = false
+    var showingSettings = false
     var searchText = ""
+    var preferences = Preferences(
+        launchAtLogin: false,
+        defaultRestoreBehavior: .reuseExisting,
+        quickSwitchShortcut: "⌘⇧W"
+    )
+
+    // MARK: - Persistence paths
+
+    private static let appSupportDir: URL = {
+        let fm = FileManager.default
+        let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = appSupport.appendingPathComponent("Ordesk", isDirectory: true)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    private static var workspacesFileURL: URL {
+        appSupportDir.appendingPathComponent("workspaces.json")
+    }
+
+    private static var preferencesFileURL: URL {
+        appSupportDir.appendingPathComponent("preferences.json")
+    }
+
+    // MARK: - Computed
 
     var filteredWorkspaces: [Workspace] {
         if searchText.isEmpty {
@@ -18,53 +46,97 @@ class WorkspaceStore {
             .sorted { $0.lastUsed > $1.lastUsed }
     }
 
+    // MARK: - Init
+
     init() {
-        loadSampleData()
+        loadWorkspaces()
+        loadPreferences()
     }
 
-    func deleteWorkspace(_ workspace: Workspace) {
-        workspaces.removeAll { $0.id == workspace.id }
-    }
+    // MARK: - CRUD
 
     func addWorkspace(_ workspace: Workspace) {
         workspaces.append(workspace)
+        saveWorkspaces()
     }
 
     func updateWorkspace(_ workspace: Workspace) {
         if let index = workspaces.firstIndex(where: { $0.id == workspace.id }) {
             workspaces[index] = workspace
+            saveWorkspaces()
         }
     }
 
-    private func loadSampleData() {
-        let freelanceApps: [AppInstance] = [
-            AppInstance(name: "Chrome", icon: "globe", isRunning: true),
-            AppInstance(name: "VS Code", icon: "chevron.left.forwardslash.chevron.right", isRunning: true),
-            AppInstance(name: "Figma", icon: "paintpalette", isRunning: true),
-            AppInstance(name: "Spotify", icon: "music.note", isRunning: true),
-        ]
-
-        let devApps: [AppInstance] = [
-            AppInstance(name: "VS Code", icon: "chevron.left.forwardslash.chevron.right", isRunning: true),
-            AppInstance(name: "Terminal", icon: "terminal", isRunning: true),
-            AppInstance(name: "Chrome", icon: "globe", isRunning: true),
-        ]
-
-        workspaces = [
-            Workspace(
-                name: "Freelance Environment",
-                apps: freelanceApps,
-                lastUsed: Date().addingTimeInterval(-3 * 3600),
-                createdAt: Date().addingTimeInterval(-7 * 86400)
-            ),
-            Workspace(
-                name: "My Dev Space",
-                apps: devApps,
-                lastUsed: Date().addingTimeInterval(-19 * 3600),
-                createdAt: Date().addingTimeInterval(-14 * 86400)
-            ),
-        ]
+    func deleteWorkspace(_ workspace: Workspace) {
+        workspaces.removeAll { $0.id == workspace.id }
+        saveWorkspaces()
     }
+
+    func clearAllWorkspaces() {
+        workspaces.removeAll()
+        saveWorkspaces()
+    }
+
+    /// Marks a workspace as recently used (updates `lastUsed` timestamp).
+    func touchWorkspace(_ workspace: Workspace) {
+        if let index = workspaces.firstIndex(where: { $0.id == workspace.id }) {
+            workspaces[index].lastUsed = Date()
+            saveWorkspaces()
+        }
+    }
+
+    // MARK: - Persistence — Workspaces
+
+    private func saveWorkspaces() {
+        do {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(workspaces)
+            try data.write(to: Self.workspacesFileURL, options: .atomic)
+        } catch {
+            print("[WorkspaceStore] Failed to save workspaces: \(error)")
+        }
+    }
+
+    private func loadWorkspaces() {
+        let url = Self.workspacesFileURL
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        do {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            workspaces = try decoder.decode([Workspace].self, from: data)
+        } catch {
+            print("[WorkspaceStore] Failed to load workspaces: \(error)")
+        }
+    }
+
+    // MARK: - Persistence — Preferences
+
+    func savePreferences() {
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted]
+            let data = try encoder.encode(preferences)
+            try data.write(to: Self.preferencesFileURL, options: .atomic)
+        } catch {
+            print("[WorkspaceStore] Failed to save preferences: \(error)")
+        }
+    }
+
+    private func loadPreferences() {
+        let url = Self.preferencesFileURL
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        do {
+            let data = try Data(contentsOf: url)
+            preferences = try JSONDecoder().decode(Preferences.self, from: data)
+        } catch {
+            print("[WorkspaceStore] Failed to load preferences: \(error)")
+        }
+    }
+
+    // MARK: - Helpers
 
     func timeAgoString(from date: Date) -> String {
         let interval = Date().timeIntervalSince(date)

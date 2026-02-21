@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct DraggableAppCard: View {
     let app: AppInstance
@@ -7,6 +8,12 @@ struct DraggableAppCard: View {
 
     @State private var isHovered = false
 
+    /// Whether a real app icon can be resolved from the bundle identifier.
+    private var hasRealIcon: Bool {
+        app.resolvedIcon != nil
+    }
+
+    // SF Symbol fallback gradient (used only when no real icon)
     private var iconGradient: LinearGradient {
         let colors: [Color] = {
             switch app.icon {
@@ -51,15 +58,8 @@ struct DraggableAppCard: View {
         ZStack(alignment: .topLeading) {
             // Card content
             VStack(spacing: 8) {
-                // App icon in gradient circle
-                Image(systemName: app.icon)
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(iconColor)
-                    .frame(width: 48, height: 48)
-                    .background(
-                        Circle()
-                            .fill(iconGradient)
-                    )
+                // App icon — real icon or SF Symbol fallback
+                appIconView
 
                 // App name + running indicator
                 HStack(spacing: 4) {
@@ -72,6 +72,11 @@ struct DraggableAppCard: View {
                         Circle()
                             .fill(DesignSystem.runningGreen)
                             .frame(width: 6, height: 6)
+                    } else {
+                        // Not running indicator
+                        Circle()
+                            .fill(Color.gray.opacity(0.4))
+                            .frame(width: 6, height: 6)
                     }
                 }
             }
@@ -80,11 +85,12 @@ struct DraggableAppCard: View {
                 RoundedRectangle(cornerRadius: 10)
                     .fill(DesignSystem.cardBackground)
                     .stroke(
-                        isHovered ? Color.black.opacity(0.12) : DesignSystem.cardBorder,
+                        isHovered ? DesignSystem.cardBorder : DesignSystem.subtleBorder,
                         lineWidth: 0.5
                     )
                     .shadow(color: .black.opacity(isHovered ? 0.08 : 0.04), radius: isHovered ? 6 : 2, y: isHovered ? 2 : 1)
             )
+            .opacity(app.isRunning ? 1.0 : 0.6)
 
             // Hover controls
             if isHovered {
@@ -122,7 +128,7 @@ struct DraggableAppCard: View {
                 .background(
                     Capsule()
                         .fill(.ultraThinMaterial)
-                        .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
+                        .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
                         .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
                 )
                 .frame(maxWidth: .infinity, alignment: .trailing)
@@ -134,6 +140,31 @@ struct DraggableAppCard: View {
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovered = hovering
             }
+        }
+    }
+
+    // MARK: - App Icon View
+
+    @ViewBuilder
+    private var appIconView: some View {
+        if let nsImage = app.resolvedIcon {
+            // Real app icon from the system
+            Image(nsImage: nsImage)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 48, height: 48)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+        } else {
+            // SF Symbol fallback
+            Image(systemName: app.icon)
+                .font(.system(size: 22, weight: .medium))
+                .foregroundStyle(iconColor)
+                .frame(width: 48, height: 48)
+                .background(
+                    Circle()
+                        .fill(iconGradient)
+                )
         }
     }
 }
@@ -155,7 +186,7 @@ struct SizePillButton: View {
                 .frame(width: 24, height: 20)
                 .background(
                     Capsule()
-                        .fill(isActive ? DesignSystem.primaryBlue : (isHovered ? Color.black.opacity(0.05) : Color.clear))
+                        .fill(isActive ? DesignSystem.primaryBlue : (isHovered ? DesignSystem.hoverBackground : Color.clear))
                 )
         }
         .buttonStyle(.plain)
@@ -168,7 +199,7 @@ struct SizePillButton: View {
 }
 
 #Preview {
-    let app = AppInstance(name: "Chrome", icon: "globe", isRunning: true)
+    let app = AppInstance(name: "Safari", bundleIdentifier: "com.apple.Safari", icon: "globe", isRunning: true)
     DraggableAppCard(
         app: app,
         cardSize: .constant(.small),

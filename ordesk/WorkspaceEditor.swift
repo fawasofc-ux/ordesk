@@ -1,22 +1,26 @@
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 
 struct WorkspaceEditor: View {
     @Environment(WorkspaceStore.self) private var store
     @State private var editingWorkspace: Workspace
-    @State private var cardSizes: [String: AppCardSize] = [:]
     @State private var showTemplatesPopup = false
+    @State private var draggedAppID: String?
 
     var onDismiss: () -> Void
 
     init(workspace: Workspace, onDismiss: @escaping () -> Void) {
-        self._editingWorkspace = State(initialValue: workspace)
+        // Load from persisted workspace — refresh running states at init
+        var ws = workspace
+        ws.refreshRunningStates()
+        self._editingWorkspace = State(initialValue: ws)
         self.onDismiss = onDismiss
+    }
 
-        var sizes: [String: AppCardSize] = [:]
-        for app in workspace.apps {
-            sizes[app.id] = .small
-        }
-        self._cardSizes = State(initialValue: sizes)
+    /// Dynamic column count based on the number of apps
+    private var gridConfig: GridConfiguration {
+        GridConfiguration.configuration(for: editingWorkspace.apps.count)
     }
 
     var body: some View {
@@ -37,17 +41,8 @@ struct WorkspaceEditor: View {
             .frame(maxHeight: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(NSColor.windowBackgroundColor),
-                                Color(NSColor.windowBackgroundColor).opacity(0.97),
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .stroke(Color.black.opacity(0.1), lineWidth: 0.5)
+                    .fill(DesignSystem.surfaceBackground)
+                    .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
                     .shadow(color: .black.opacity(0.2), radius: 40, y: 10)
             )
             .padding(.horizontal, 40)
@@ -74,8 +69,7 @@ struct WorkspaceEditor: View {
             HStack(spacing: 8) {
                 // Save button
                 Button {
-                    store.updateWorkspace(editingWorkspace)
-                    onDismiss()
+                    saveAndDismiss()
                 } label: {
                     HStack(spacing: 5) {
                         Image(systemName: "square.and.arrow.down")
@@ -95,7 +89,7 @@ struct WorkspaceEditor: View {
                         .frame(width: 28, height: 28)
                         .background(
                             Circle()
-                                .fill(Color.black.opacity(0.05))
+                                .fill(DesignSystem.hoverBackground)
                         )
                 }
                 .buttonStyle(.plain)
@@ -114,7 +108,7 @@ struct WorkspaceEditor: View {
                 Image(systemName: "square.grid.2x2")
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
-                Text("\(editingWorkspace.apps.count) apps \u{2022} Drag to reorder, hover for resize")
+                Text("\(editingWorkspace.apps.count) apps \u{2022} \(gridConfig.description) \u{2022} Drag to reorder, hover for resize")
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
             }
@@ -131,29 +125,58 @@ struct WorkspaceEditor: View {
     }
 
     private var appGrid: some View {
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 4)
+        let columnCount = gridConfig.columns
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: columnCount)
 
         return LazyVGrid(columns: columns, spacing: 12) {
             ForEach(editingWorkspace.apps) { app in
-                let size = cardSizes[app.id] ?? .small
+                let size = app.cardSize
 
                 DraggableAppCard(
                     app: app,
                     cardSize: Binding(
-                        get: { cardSizes[app.id] ?? .small },
-                        set: { cardSizes[app.id] = $0 }
+                        get: { cardSizeFor(app) },
+                        set: { setCardSize($0, for: app) }
                     ),
                     onRemove: {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             editingWorkspace.apps.removeAll { $0.id == app.id }
-                            cardSizes.removeValue(forKey: app.id)
                         }
                     }
                 )
                 .frame(height: size.gridRows == 2 ? 292 : 140)
                 .gridCellColumns(size.gridColumns)
+                // MARK: Drag & Drop
+                .onDrag {
+                    draggedAppID = app.id
+                    return NSItemProvider(object: app.id as NSString)
+                }
+                .onDrop(of: [UTType.text], delegate: AppDropDelegate(
+                    targetAppID: app.id,
+                    apps: $editingWorkspace.apps,
+                    draggedAppID: $draggedAppID
+                ))
             }
         }
+    }
+
+    // MARK: - Card Size Helpers
+
+    private func cardSizeFor(_ app: AppInstance) -> AppCardSize {
+        app.cardSize
+    }
+
+    private func setCardSize(_ size: AppCardSize, for app: AppInstance) {
+        if let index = editingWorkspace.apps.firstIndex(where: { $0.id == app.id }) {
+            editingWorkspace.apps[index].cardSize = size
+        }
+    }
+
+    // MARK: - Save
+
+    private func saveAndDismiss() {
+        store.updateWorkspace(editingWorkspace)
+        onDismiss()
     }
 
     // MARK: - Dock Bar
@@ -163,10 +186,6 @@ struct WorkspaceEditor: View {
             // Frosted glass
             Rectangle()
                 .fill(.ultraThinMaterial)
-                .overlay(
-                    Rectangle()
-                        .fill(Color.white.opacity(0.7))
-                )
 
             HStack(spacing: 12) {
                 // Templates button
@@ -231,23 +250,52 @@ struct WorkspaceEditor: View {
         withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
             switch template {
             case .grid:
-                for app in editingWorkspace.apps {
-                    cardSizes[app.id] = .small
+                for i in editingWorkspace.apps.indices {
+                    editingWorkspace.apps[i].cardSize = .small
                 }
             case .sidebar:
-                guard let first = editingWorkspace.apps.first else { return }
-                cardSizes[first.id] = .large
-                for app in editingWorkspace.apps.dropFirst() {
-                    cardSizes[app.id] = .small
+                guard !editingWorkspace.apps.isEmpty else { return }
+                editingWorkspace.apps[0].cardSize = .large
+                for i in editingWorkspace.apps.indices.dropFirst() {
+                    editingWorkspace.apps[i].cardSize = .small
                 }
             case .focus:
-                guard let first = editingWorkspace.apps.first else { return }
-                cardSizes[first.id] = .large
-                for app in editingWorkspace.apps.dropFirst() {
-                    cardSizes[app.id] = .medium
+                guard !editingWorkspace.apps.isEmpty else { return }
+                editingWorkspace.apps[0].cardSize = .large
+                for i in editingWorkspace.apps.indices.dropFirst() {
+                    editingWorkspace.apps[i].cardSize = .medium
                 }
             }
         }
+    }
+}
+
+// MARK: - Drag & Drop Delegate
+
+struct AppDropDelegate: DropDelegate {
+    let targetAppID: String
+    @Binding var apps: [AppInstance]
+    @Binding var draggedAppID: String?
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggedAppID = nil
+        return true
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard let draggedID = draggedAppID,
+              draggedID != targetAppID,
+              let fromIndex = apps.firstIndex(where: { $0.id == draggedID }),
+              let toIndex = apps.firstIndex(where: { $0.id == targetAppID })
+        else { return }
+
+        withAnimation(.easeInOut(duration: 0.2)) {
+            apps.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex)
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
     }
 }
 
@@ -279,8 +327,8 @@ struct DisplayModeSelector: View {
         .padding(3)
         .background(
             Capsule()
-                .fill(Color(NSColor.controlBackgroundColor))
-                .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
+                .fill(DesignSystem.elevatedSurface)
+                .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
         )
     }
 }
@@ -305,7 +353,7 @@ struct DisplayModeButton: View {
             .padding(.vertical, 6)
             .background(
                 Capsule()
-                    .fill(isActive ? DesignSystem.primaryBlue : (isHovered ? Color.black.opacity(0.04) : Color.clear))
+                    .fill(isActive ? DesignSystem.primaryBlue : (isHovered ? DesignSystem.hoverBackground : Color.clear))
             )
         }
         .buttonStyle(.plain)
@@ -378,8 +426,8 @@ struct DockPillButton: View {
             .padding(.vertical, 8)
             .background(
                 Capsule()
-                    .fill(isHovered ? Color.white : Color.white.opacity(0.9))
-                    .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
+                    .fill(isHovered ? DesignSystem.cardBackground : DesignSystem.cardBackground.opacity(0.9))
+                    .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
                     .shadow(color: .black.opacity(isHovered ? 0.08 : 0.03), radius: isHovered ? 4 : 2, y: 1)
             )
         }
@@ -428,7 +476,7 @@ struct TemplatesPopup: View {
         .background(
             RoundedRectangle(cornerRadius: 10)
                 .fill(.regularMaterial)
-                .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
+                .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
                 .shadow(color: .black.opacity(0.15), radius: 16, y: 8)
         )
     }
@@ -485,10 +533,10 @@ struct TemplateRow: View {
         workspace: Workspace(
             name: "Freelance Environment",
             apps: [
-                AppInstance(name: "Chrome", icon: "globe", isRunning: true),
-                AppInstance(name: "VS Code", icon: "chevron.left.forwardslash.chevron.right", isRunning: true),
-                AppInstance(name: "Figma", icon: "paintpalette", isRunning: true),
-                AppInstance(name: "Spotify", icon: "music.note", isRunning: true),
+                AppInstance(name: "Safari", bundleIdentifier: "com.apple.Safari", icon: "globe", isRunning: true),
+                AppInstance(name: "Xcode", bundleIdentifier: "com.apple.dt.Xcode", icon: "chevron.left.forwardslash.chevron.right", isRunning: true),
+                AppInstance(name: "Terminal", bundleIdentifier: "com.apple.Terminal", icon: "terminal", isRunning: true),
+                AppInstance(name: "Notes", bundleIdentifier: "com.apple.Notes", icon: "doc.text", isRunning: false),
             ]
         ),
         onDismiss: {}

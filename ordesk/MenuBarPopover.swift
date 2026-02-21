@@ -30,17 +30,7 @@ struct MenuBarPopover: View {
             footerSection
         }
         .frame(width: DesignSystem.popoverWidth)
-        .background(
-            LinearGradient(
-                colors: [
-                    Color(NSColor.controlBackgroundColor),
-                    Color(NSColor.controlBackgroundColor).opacity(0.98),
-                    Color(red: 0.94, green: 0.95, blue: 0.98)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
+        .background(DesignSystem.surfaceBackground)
     }
 
     // MARK: - Header
@@ -63,7 +53,7 @@ struct MenuBarPopover: View {
                             )
                     )
 
-                Text("Workspaces")
+                Text("Ordesk Workspaces")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(DesignSystem.textPrimary)
             }
@@ -93,8 +83,8 @@ struct MenuBarPopover: View {
         .padding(.vertical, 7)
         .background(
             RoundedRectangle(cornerRadius: DesignSystem.inputRadius)
-                .fill(Color(NSColor.controlBackgroundColor))
-                .stroke(Color.black.opacity(0.06), lineWidth: 0.5)
+                .fill(DesignSystem.elevatedSurface)
+                .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
         )
         .padding(.horizontal, 12)
         .padding(.top, 8)
@@ -183,18 +173,19 @@ struct MenuBarPopover: View {
         .buttonStyle(.plain)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        .background(DesignSystem.elevatedSurface.opacity(0.5))
     }
 }
 
 // MARK: - Settings Button
 
 struct SettingsButton: View {
+    @Environment(WorkspaceStore.self) private var store
     @State private var isHovered = false
 
     var body: some View {
         Button {
-            // Open settings
+            store.showingSettings = true
         } label: {
             Image(systemName: "gearshape")
                 .font(.system(size: 14))
@@ -202,7 +193,7 @@ struct SettingsButton: View {
                 .frame(width: 28, height: 28)
                 .background(
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(isHovered ? Color.black.opacity(0.05) : Color.clear)
+                        .fill(isHovered ? DesignSystem.hoverBackground : Color.clear)
                 )
         }
         .buttonStyle(.plain)
