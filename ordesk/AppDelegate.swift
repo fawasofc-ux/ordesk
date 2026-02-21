@@ -149,7 +149,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         closeEditorWindow()
 
         // Show HUD
-        hudController.show(state: .preparingDesktop)
+        hudController.show(state: .launchingApps(current: workspace.apps.first?.name ?? "", index: 0, total: workspace.apps.count))
 
         // Mark workspace as recently used
         store.touchWorkspace(workspace)
@@ -160,11 +160,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 try await workspaceRunner.run(workspace: workspace) { [weak self] state in
                     self?.hudController.update(state: state)
                 }
-                // HUD auto-dismisses on .completed via WorkspaceHUD's onChange
+                // HUD auto-dismisses via WorkspaceHUDController.update(.completed)
             } catch {
                 hudController.update(state: .failed(error.localizedDescription))
                 // Show error alert after a short delay so user sees the HUD first
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                     self.hudController.dismiss()
                     showWorkspaceRunnerErrorAlert(error: error)
                 }

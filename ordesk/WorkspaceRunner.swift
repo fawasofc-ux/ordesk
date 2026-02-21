@@ -3,15 +3,14 @@ import Foundation
 
 // MARK: - Workspace Runner
 
-/// Executes a workspace by creating a new macOS Desktop (Space),
-/// switching into it, and launching the workspace's apps in order.
+/// Executes a workspace: launches apps, unminimizes them, and positions
+/// their windows at the correct screen ratios based on cardSize/grid layout.
 ///
-/// Uses AppleScript + System Events to automate Mission Control
-/// (no private CGS APIs — App Store safe).
+/// Uses AppleScript + AXUIElement for window management.
 ///
 /// Requires:
-///   • Accessibility permission (AXIsProcessTrusted)
-///   • Automation permission for "System Events" (NSAppleEventsUsageDescription)
+///   - Accessibility permission (AXIsProcessTrusted)
+///   - Automation permission for "System Events" (NSAppleEventsUsageDescription)
 @MainActor
 final class WorkspaceRunner {
 
@@ -19,23 +18,17 @@ final class WorkspaceRunner {
 
     enum RunnerError: LocalizedError {
         case accessibilityNotGranted
-        case missionControlFailed(String)
-        case desktopCreationFailed(String)
-        case desktopSwitchFailed(String)
         case appLaunchFailed(appName: String, reason: String)
+        case windowPositionFailed(appName: String, reason: String)
 
         var errorDescription: String? {
             switch self {
             case .accessibilityNotGranted:
-                return "Accessibility permission is required to create new Desktops."
-            case .missionControlFailed(let detail):
-                return "Unable to open Mission Control. \(detail)"
-            case .desktopCreationFailed(let detail):
-                return "Unable to create a new Desktop. \(detail)"
-            case .desktopSwitchFailed(let detail):
-                return "Unable to switch to the new Desktop. \(detail)"
+                return "Accessibility permission is required to manage windows."
             case .appLaunchFailed(let name, let reason):
                 return "Failed to launch \(name): \(reason)"
+            case .windowPositionFailed(let name, let reason):
+                return "Failed to position \(name): \(reason)"
             }
         }
     }
@@ -47,6 +40,7 @@ final class WorkspaceRunner {
         case preparingDesktop
         case switchingDesktop
         case launchingApps(current: String, index: Int, total: Int)
+        case positioningWindows
         case completed
         case failed(String)
     }
@@ -57,7 +51,7 @@ final class WorkspaceRunner {
 
     // MARK: - Public API
 
-    /// Runs a workspace: creates a new Desktop, switches to it, launches apps.
+    /// Runs a workspace: launches/activates apps and positions their windows.
     /// - Parameters:
     ///   - workspace: The workspace to execute.
     ///   - onStateChange: Callback invoked on each state transition (for HUD updates).
@@ -71,152 +65,36 @@ final class WorkspaceRunner {
             throw RunnerError.accessibilityNotGranted
         }
 
-        // Step 1: Create new Desktop
-        transition(to: .preparingDesktop)
-        try await createNewDesktop()
-
-        // Step 2: Switch to the new Desktop
-        transition(to: .switchingDesktop)
-        try await switchToNewDesktop()
-
-        // Wait for the Space transition animation to complete
-        try await Task.sleep(for: .milliseconds(800))
-
-        // Step 3+4: Launch apps in order
+        // Step 1: Launch / activate all apps
         let apps = workspace.apps
-        print("[WorkspaceRunner] Launching \(apps.count) app(s)…")
+        print("[WorkspaceRunner] Launching \(apps.count) app(s)...")
         for (index, app) in apps.enumerated() {
-            print("[WorkspaceRunner] [\(index+1)/\(apps.count)] \(app.name) — \(app.bundleIdentifier)")
+            print("[WorkspaceRunner] [\(index+1)/\(apps.count)] \(app.name) -- \(app.bundleIdentifier)")
             transition(to: .launchingApps(current: app.name, index: index, total: apps.count))
-            try await launchApplication(app)
+            try await launchAndActivateApp(app)
 
             // Delay between launches to avoid macOS window race conditions
             if index < apps.count - 1 {
-                try await Task.sleep(for: .milliseconds(500))
+                try await Task.sleep(for: .milliseconds(600))
             }
         }
+
+        // Step 2: Wait for all windows to settle
+        try await Task.sleep(for: .milliseconds(500))
+
+        // Step 3: Position all windows based on cardSize layout
+        transition(to: .positioningWindows)
+        await positionAllWindows(apps: apps)
 
         // Done
         transition(to: .completed)
     }
 
-    // MARK: - PART 1 — Create New Desktop via Mission Control
+    // MARK: - Launch & Activate Apps
 
-    /// Opens Mission Control, clicks the "+" button to add a new Desktop, then exits.
-    private func createNewDesktop() async throws {
-        // Phase 1: Open Mission Control (Ctrl + Up Arrow)
-        let openMC = """
-        tell application "System Events"
-            key code 126 using control down
-        end tell
-        """
-        let openResult = executeAppleScript(openMC)
-        if let error = openResult.error {
-            throw RunnerError.missionControlFailed(error)
-        }
-
-        // Wait for Mission Control animation
-        try await Task.sleep(for: .milliseconds(700))
-
-        // Phase 2: Click the "add desktop" button
-        // Search resilliently by AXDescription to find the "+" button
-        let addDesktop = """
-        tell application "System Events"
-            tell process "Dock"
-                set mcGroup to group 2 of group 1 of group 1
-                -- Find the "add desktop" button by searching AXDescription
-                set addBtn to missing value
-                try
-                    set addBtn to button 1 of mcGroup
-                end try
-                if addBtn is not missing value then
-                    click addBtn
-                else
-                    -- Fallback: search all buttons for "add desktop"
-                    set allButtons to buttons of mcGroup
-                    repeat with b in allButtons
-                        try
-                            if description of b contains "add" then
-                                click b
-                                exit repeat
-                            end if
-                        end try
-                    end repeat
-                end if
-            end tell
-        end tell
-        """
-        let addResult = executeAppleScript(addDesktop)
-        if let error = addResult.error {
-            // Try alternative approach: hover to reveal and click
-            let fallbackAdd = """
-            tell application "System Events"
-                tell process "Dock"
-                    -- Try clicking the add button in the spaces bar
-                    try
-                        set spacesList to list 1 of group 2 of group 1 of group 1
-                        -- The + button is usually after the last space
-                        click button 1 of group 2 of group 1 of group 1
-                    end try
-                end tell
-            end tell
-            """
-            let fallbackResult = executeAppleScript(fallbackAdd)
-            if let fallbackError = fallbackResult.error {
-                // Exit Mission Control before throwing
-                exitMissionControl()
-                throw RunnerError.desktopCreationFailed(
-                    "Could not find the 'add desktop' button. \(error) / \(fallbackError)"
-                )
-            }
-        }
-
-        // Wait for the new Space creation animation
-        try await Task.sleep(for: .milliseconds(500))
-
-        // Phase 3: Exit Mission Control
-        exitMissionControl()
-
-        // Wait for Mission Control to fully close
-        try await Task.sleep(for: .milliseconds(400))
-    }
-
-    /// Sends Escape to exit Mission Control.
-    private func exitMissionControl() {
-        let script = """
-        tell application "System Events"
-            key code 53
-        end tell
-        """
-        _ = executeAppleScript(script)
-    }
-
-    // MARK: - PART 2 — Switch to New Desktop
-
-    /// Moves to the rightmost Desktop (the newly created one) using Ctrl+Right Arrow.
-    private func switchToNewDesktop() async throws {
-        let switchScript = """
-        tell application "System Events"
-            key code 124 using control down
-        end tell
-        """
-        let result = executeAppleScript(switchScript)
-        if let error = result.error {
-            throw RunnerError.desktopSwitchFailed(error)
-        }
-    }
-
-    // MARK: - PART 3+4 — Launch Applications
-
-    /// Launches or activates a single application on the current Desktop.
-    ///
-    /// Strategy:
-    /// 1. If the app is NOT running → launch it via NSWorkspace with `activates = true`
-    ///    so it opens a new window on the current Desktop.
-    /// 2. If the app IS already running → use AppleScript `tell application ... to activate`
-    ///    which brings it to the foreground on the current Desktop (creating a new window if needed).
-    /// 3. In both cases, follow up with an AppleScript activate to ensure visibility.
-    private func launchApplication(_ app: AppInstance) async throws {
+    /// Launches an app if not running, or activates + unminimizes it if already running.
+    /// Uses AppleScript to ensure the app is visible on the current Desktop.
+    private func launchAndActivateApp(_ app: AppInstance) async throws {
         guard !app.bundleIdentifier.isEmpty else {
             throw RunnerError.appLaunchFailed(
                 appName: app.name,
@@ -234,12 +112,46 @@ final class WorkspaceRunner {
         }
 
         // Check if app is already running
-        let isAlreadyRunning = NSWorkspace.shared.runningApplications.contains {
+        let runningApp = NSWorkspace.shared.runningApplications.first {
             $0.bundleIdentifier == app.bundleIdentifier
         }
 
-        if !isAlreadyRunning {
-            // Launch the app fresh — activates = true so it opens on the current Desktop
+        if let runningApp = runningApp {
+            // App IS running -- unminimize + activate it
+            print("[WorkspaceRunner] \(app.name) is already running, activating...")
+
+            // First: unhide if hidden
+            if runningApp.isHidden {
+                runningApp.unhide()
+                try await Task.sleep(for: .milliseconds(200))
+            }
+
+            // Use AXUIElement to unminimize any minimized windows
+            unminimizeWindows(for: runningApp)
+
+            // Activate via AppleScript (brings window to current Desktop)
+            let activateScript = """
+            tell application id "\(app.bundleIdentifier)"
+                activate
+                if (count of windows) = 0 then
+                    try
+                        make new document
+                    end try
+                end if
+            end tell
+            """
+            let result = executeAppleScript(activateScript)
+            if let error = result.error {
+                print("[WorkspaceRunner] AppleScript activate failed for \(app.name): \(error)")
+                // Fallback: try NSRunningApplication.activate
+                runningApp.activate()
+            }
+
+            try await Task.sleep(for: .milliseconds(400))
+        } else {
+            // App is NOT running -- launch fresh
+            print("[WorkspaceRunner] \(app.name) is not running, launching...")
+
             let config = NSWorkspace.OpenConfiguration()
             config.activates = true
             config.addsToRecentItems = false
@@ -253,30 +165,210 @@ final class WorkspaceRunner {
                 )
             }
 
-            // Give the app time to finish launching and create its window
-            try await Task.sleep(for: .milliseconds(500))
-        } else {
-            // App is already running — use AppleScript to activate it on the current Desktop.
-            // This tells macOS to bring the app to the foreground, which opens/moves
-            // a window onto the active Space.
-            let activateScript = """
-            tell application id "\(app.bundleIdentifier)" to activate
-            """
-            let result = executeAppleScript(activateScript)
-            if let error = result.error {
-                // Fallback: try by name
-                let fallbackScript = """
-                tell application "\(app.name)" to activate
-                """
-                let fallbackResult = executeAppleScript(fallbackScript)
-                if let fallbackError = fallbackResult.error {
-                    print("[WorkspaceRunner] Failed to activate \(app.name): \(error) / \(fallbackError)")
-                    // Don't throw — the app is running, it just might not move to this Desktop
+            // Wait for the app to fully launch and create its first window
+            try await waitForAppWindow(bundleIdentifier: app.bundleIdentifier, timeout: 5.0)
+        }
+    }
+
+    /// Waits until an app has at least one window, or until timeout.
+    private func waitForAppWindow(bundleIdentifier: String, timeout: Double) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+                $0.bundleIdentifier == bundleIdentifier
+            }) {
+                // Check via AX if the app has any windows
+                let appElement = AXUIElementCreateApplication(runningApp.processIdentifier)
+                var windowsRef: CFTypeRef?
+                let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef)
+                if result == .success, let windows = windowsRef as? [AXUIElement], !windows.isEmpty {
+                    return
                 }
             }
+            try await Task.sleep(for: .milliseconds(200))
+        }
+        // Timeout is OK -- some apps don't create windows immediately (e.g. menu bar apps)
+        print("[WorkspaceRunner] Timeout waiting for window: \(bundleIdentifier)")
+    }
 
-            // Give the app time to move its window to the current Desktop
-            try await Task.sleep(for: .milliseconds(300))
+    /// Uses AXUIElement to find and unminimize any minimized windows for the given app.
+    private func unminimizeWindows(for runningApp: NSRunningApplication) {
+        let appElement = AXUIElementCreateApplication(runningApp.processIdentifier)
+        var windowsRef: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef)
+
+        guard result == .success, let windows = windowsRef as? [AXUIElement] else {
+            print("[WorkspaceRunner] Could not get windows for \(runningApp.localizedName ?? "unknown")")
+            return
+        }
+
+        for window in windows {
+            var minimizedRef: CFTypeRef?
+            let minResult = AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &minimizedRef)
+            if minResult == .success, let isMinimized = minimizedRef as? Bool, isMinimized {
+                print("[WorkspaceRunner] Unminimizing window for \(runningApp.localizedName ?? "unknown")")
+                AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, false as CFTypeRef)
+            }
+        }
+    }
+
+    // MARK: - Window Positioning
+
+    /// Positions all app windows based on their cardSize and order in the workspace.
+    /// Uses the grid layout logic from the editor to calculate screen ratios.
+    private func positionAllWindows(apps: [AppInstance]) async {
+        guard let screen = NSScreen.main else { return }
+        let visibleFrame = screen.visibleFrame // accounts for menu bar + dock
+
+        // Calculate window frames based on card sizes
+        let frames = calculateWindowFrames(apps: apps, in: visibleFrame)
+
+        for (index, app) in apps.enumerated() {
+            guard index < frames.count else { continue }
+            let targetFrame = frames[index]
+
+            print("[WorkspaceRunner] Positioning \(app.name) at \(targetFrame)")
+
+            // Find the running app
+            guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+                $0.bundleIdentifier == app.bundleIdentifier
+            }) else {
+                print("[WorkspaceRunner] \(app.name) not running, skipping position")
+                continue
+            }
+
+            // Use AXUIElement to move and resize
+            setWindowFrame(for: runningApp, frame: targetFrame)
+
+            // Small delay between positioning
+            if index < apps.count - 1 {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+    }
+
+    /// Calculates target frames for each app based on their cardSize.
+    ///
+    /// Layout logic:
+    /// - Uses the same grid system as the WorkspaceEditor
+    /// - `small` = 1 column, 1 row unit
+    /// - `medium` = 2 columns, 1 row unit
+    /// - `large` = 2 columns, 2 row units
+    ///
+    /// The algorithm walks through apps row by row, placing them in a grid,
+    /// then maps grid cells to actual screen coordinates.
+    private func calculateWindowFrames(apps: [AppInstance], in rect: CGRect) -> [CGRect] {
+        let gridConfig = GridConfiguration.configuration(for: apps.count)
+        let totalColumns = gridConfig.columns
+
+        // Build a placement map: each app occupies cells in a virtual grid
+        struct Placement {
+            let col: Int
+            let row: Int
+            let colSpan: Int
+            let rowSpan: Int
+        }
+
+        var placements: [Placement] = []
+        var currentCol = 0
+        var currentRow = 0
+        var maxRow = 0
+
+        // Grid occupancy tracker
+        var occupied: Set<String> = [] // "col,row" keys
+        func isOccupied(_ c: Int, _ r: Int) -> Bool { occupied.contains("\(c),\(r)") }
+        func occupy(_ c: Int, _ r: Int) { occupied.insert("\(c),\(r)") }
+
+        for app in apps {
+            let colSpan = app.cardSize.gridColumns
+            let rowSpan = app.cardSize.gridRows
+
+            // Find next available position
+            var placed = false
+            for r in currentRow...currentRow + 10 { // safety limit
+                for c in 0...(totalColumns - colSpan) {
+                    // Check if all cells for this placement are free
+                    var canPlace = true
+                    for dc in 0..<colSpan {
+                        for dr in 0..<rowSpan {
+                            if isOccupied(c + dc, r + dr) {
+                                canPlace = false
+                                break
+                            }
+                        }
+                        if !canPlace { break }
+                    }
+
+                    if canPlace {
+                        // Place the app
+                        for dc in 0..<colSpan {
+                            for dr in 0..<rowSpan {
+                                occupy(c + dc, r + dr)
+                            }
+                        }
+                        placements.append(Placement(col: c, row: r, colSpan: colSpan, rowSpan: rowSpan))
+                        maxRow = max(maxRow, r + rowSpan)
+                        placed = true
+                        break
+                    }
+                }
+                if placed { break }
+            }
+
+            if !placed {
+                // Fallback: place at origin
+                placements.append(Placement(col: 0, row: maxRow, colSpan: min(colSpan, totalColumns), rowSpan: rowSpan))
+                maxRow += rowSpan
+            }
+        }
+
+        // Convert grid placements to screen coordinates
+        let totalRows = max(maxRow, 1)
+        let cellWidth = rect.width / CGFloat(totalColumns)
+        let cellHeight = rect.height / CGFloat(totalRows)
+        let padding: CGFloat = 4 // small gap between windows
+
+        var frames: [CGRect] = []
+        for placement in placements {
+            let x = rect.minX + CGFloat(placement.col) * cellWidth + padding
+            let y = rect.minY + rect.height - CGFloat(placement.row + placement.rowSpan) * cellHeight + padding
+            let w = CGFloat(placement.colSpan) * cellWidth - padding * 2
+            let h = CGFloat(placement.rowSpan) * cellHeight - padding * 2
+
+            frames.append(CGRect(x: x, y: y, width: max(w, 200), height: max(h, 150)))
+        }
+
+        return frames
+    }
+
+    /// Sets the position and size of the frontmost window of a running application
+    /// using the Accessibility API (AXUIElement).
+    private func setWindowFrame(for runningApp: NSRunningApplication, frame: CGRect) {
+        let appElement = AXUIElementCreateApplication(runningApp.processIdentifier)
+        var windowsRef: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef)
+
+        guard result == .success, let windows = windowsRef as? [AXUIElement], let window = windows.first else {
+            print("[WorkspaceRunner] No AX windows found for \(runningApp.localizedName ?? "unknown")")
+            return
+        }
+
+        // Set position
+        var position = CGPoint(x: frame.origin.x, y: frame.origin.y)
+        if let posValue = AXValueCreate(.cgPoint, &position) {
+            let posResult = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, posValue)
+            if posResult != .success {
+                print("[WorkspaceRunner] Failed to set position for \(runningApp.localizedName ?? "unknown"): \(posResult.rawValue)")
+            }
+        }
+
+        // Set size
+        var size = CGSize(width: frame.size.width, height: frame.size.height)
+        if let sizeValue = AXValueCreate(.cgSize, &size) {
+            let sizeResult = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
+            if sizeResult != .success {
+                print("[WorkspaceRunner] Failed to set size for \(runningApp.localizedName ?? "unknown"): \(sizeResult.rawValue)")
+            }
         }
     }
 
@@ -309,15 +401,10 @@ final class WorkspaceRunner {
         onStateChange?(newState)
     }
 
-    // MARK: - PART 6 — Diagnostics
+    // MARK: - Diagnostics
 
     /// Checks if "Displays have separate Spaces" is enabled.
-    /// This setting is required for Space creation to work.
-    /// Reads from com.apple.spaces preferences.
     static func separateSpacesEnabled() -> Bool {
-        // CFPreferences for com.apple.spaces → "spans-displays"
-        // When spans-displays == false (or missing), separate Spaces is ON (the default)
-        // When spans-displays == true, separate Spaces is OFF
         let defaults = UserDefaults(suiteName: "com.apple.spaces")
         let spansDisplays = defaults?.bool(forKey: "spans-displays") ?? false
         return !spansDisplays
@@ -328,17 +415,13 @@ final class WorkspaceRunner {
         var issues: [String] = []
 
         if !AccessibilityPermissionManager.isTrusted() {
-            issues.append("• Grant Accessibility permission in System Settings → Privacy & Security → Accessibility")
-        }
-
-        if !separateSpacesEnabled() {
-            issues.append("• Enable \"Displays have separate Spaces\" in System Settings → Desktop & Dock")
+            issues.append("Grant Accessibility permission in System Settings -> Privacy & Security -> Accessibility")
         }
 
         if issues.isEmpty {
             return "All required permissions are configured correctly."
         }
 
-        return "Unable to create a new Desktop. Please ensure:\n\n" + issues.joined(separator: "\n")
+        return "Unable to run workspace. Please ensure:\n\n" + issues.joined(separator: "\n")
     }
 }

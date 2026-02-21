@@ -4,11 +4,9 @@ import AppKit
 // MARK: - Workspace HUD View
 
 /// A small floating overlay that shows the current workspace execution state.
-/// Displays "Preparing Workspace…", "Launching Safari…", etc.
-/// Auto-dismisses after completion.
+/// Displays "Launching Safari...", "Positioning Windows...", etc.
 struct WorkspaceHUD: View {
     let state: WorkspaceRunner.RunnerState
-    var onDismiss: () -> Void
 
     var body: some View {
         VStack(spacing: 12) {
@@ -42,14 +40,6 @@ struct WorkspaceHUD: View {
             RoundedRectangle(cornerRadius: 16)
                 .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
         )
-        .onChange(of: state) { _, newState in
-            if newState == .completed {
-                // Auto-dismiss after 1 second
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    onDismiss()
-                }
-            }
-        }
     }
 
     // MARK: - Icon
@@ -60,7 +50,7 @@ struct WorkspaceHUD: View {
         case .idle:
             EmptyView()
 
-        case .preparingDesktop, .switchingDesktop:
+        case .preparingDesktop, .switchingDesktop, .positioningWindows:
             ProgressView()
                 .controlSize(.regular)
                 .scaleEffect(0.9)
@@ -91,11 +81,13 @@ struct WorkspaceHUD: View {
         case .idle:
             return ""
         case .preparingDesktop:
-            return "Preparing Workspace…"
+            return "Preparing Workspace..."
         case .switchingDesktop:
-            return "Switching Desktop…"
+            return "Switching Desktop..."
         case .launchingApps(let current, _, _):
-            return "Launching \(current)…"
+            return "Launching \(current)..."
+        case .positioningWindows:
+            return "Arranging Windows..."
         case .completed:
             return "Workspace Ready"
         case .failed:
@@ -118,14 +110,20 @@ struct WorkspaceHUD: View {
 // MARK: - HUD Window Controller
 
 /// Manages the floating HUD window lifecycle.
-/// Shows a centered overlay during workspace execution, auto-dismisses on completion.
+/// Shows a centered overlay during workspace execution.
+/// Auto-dismisses 1.5 seconds after reaching .completed state.
 @MainActor
 final class WorkspaceHUDController {
 
     private var hudWindow: NSWindow?
+    private var autoDismissWork: DispatchWorkItem?
 
     /// Shows the HUD on screen.
     func show(state: WorkspaceRunner.RunnerState) {
+        // Cancel any pending auto-dismiss
+        autoDismissWork?.cancel()
+        autoDismissWork = nil
+
         if hudWindow == nil {
             createWindow(state: state)
         } else {
@@ -133,13 +131,29 @@ final class WorkspaceHUDController {
         }
     }
 
-    /// Updates the HUD state.
+    /// Updates the HUD state and handles auto-dismiss for terminal states.
     func update(state: WorkspaceRunner.RunnerState) {
+        // Cancel any pending auto-dismiss
+        autoDismissWork?.cancel()
+        autoDismissWork = nil
+
         updateContent(state: state)
+
+        // Auto-dismiss on completed
+        if state == .completed {
+            let work = DispatchWorkItem { [weak self] in
+                self?.dismiss()
+            }
+            autoDismissWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
+        }
     }
 
     /// Dismisses the HUD window with a fade.
     func dismiss() {
+        autoDismissWork?.cancel()
+        autoDismissWork = nil
+
         guard let window = hudWindow else { return }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.25
@@ -157,13 +171,7 @@ final class WorkspaceHUDController {
     private func createWindow(state: WorkspaceRunner.RunnerState) {
         guard let screen = NSScreen.main else { return }
 
-        let hudView = WorkspaceHUD(
-            state: state,
-            onDismiss: { [weak self] in
-                self?.dismiss()
-            }
-        )
-
+        let hudView = WorkspaceHUD(state: state)
         let hostingView = NSHostingController(rootView: hudView)
 
         let window = NSPanel(
@@ -175,9 +183,10 @@ final class WorkspaceHUDController {
         window.contentViewController = hostingView
         window.isOpaque = false
         window.backgroundColor = .clear
-        window.level = .floating
+        window.level = .screenSaver // above everything including other apps
         window.hasShadow = false
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.ignoresMouseEvents = true // don't interfere with app launching
 
         // Center on screen
         let windowSize = NSSize(width: 260, height: 120)
@@ -205,13 +214,7 @@ final class WorkspaceHUDController {
             return
         }
 
-        let hudView = WorkspaceHUD(
-            state: state,
-            onDismiss: { [weak self] in
-                self?.dismiss()
-            }
-        )
-
+        let hudView = WorkspaceHUD(state: state)
         hudWindow?.contentViewController = NSHostingController(rootView: hudView)
     }
 }
