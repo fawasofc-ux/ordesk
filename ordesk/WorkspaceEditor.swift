@@ -226,6 +226,7 @@ struct WorkspaceEditor: View {
                 // Run Workspace button
                 RunWorkspaceButton {
                     store.updateWorkspace(editingWorkspace)
+                    store.workspaceToRun = editingWorkspace
                     onDismiss()
                 }
 

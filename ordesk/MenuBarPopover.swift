@@ -101,7 +101,7 @@ struct MenuBarPopover: View {
                         workspace: workspace,
                         timeAgo: store.timeAgoString(from: workspace.lastUsed),
                         onRun: {
-                            // Run workspace action
+                            store.workspaceToRun = workspace
                         },
                         onEdit: {
                             store.selectedWorkspace = workspace

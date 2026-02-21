@@ -10,6 +10,7 @@ class WorkspaceStore {
     var showingEditor = false
     var showingCreateModal = false
     var showingSettings = false
+    var workspaceToRun: Workspace?
     var searchText = ""
     var preferences = Preferences(
         launchAtLogin: false,

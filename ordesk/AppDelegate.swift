@@ -17,6 +17,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var createModalWindow: NSWindow?
     private var settingsWindow: NSWindow?
     private var storeObservation: Any?
+    private let workspaceRunner = WorkspaceRunner()
+    private let hudController = WorkspaceHUDController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
@@ -94,9 +96,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        func observeRunWorkspace() {
+            withObservationTracking {
+                _ = store.workspaceToRun
+            } onChange: { [weak self] in
+                DispatchQueue.main.async {
+                    self?.handleRunWorkspace()
+                    observeRunWorkspace()
+                }
+            }
+        }
+
         observeEditor()
         observeCreateModal()
         observeSettings()
+        observeRunWorkspace()
     }
 
     private func handleEditorToggle() {
@@ -123,6 +137,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             openCreateModalWindow()
         } else {
             closeCreateModalWindow()
+        }
+    }
+
+    private func handleRunWorkspace() {
+        guard let workspace = store.workspaceToRun else { return }
+        store.workspaceToRun = nil
+
+        // Close any open overlays
+        popover?.performClose(nil)
+        closeEditorWindow()
+
+        // Show HUD
+        hudController.show(state: .preparingDesktop)
+
+        // Mark workspace as recently used
+        store.touchWorkspace(workspace)
+
+        // Run workspace asynchronously
+        Task { @MainActor in
+            do {
+                try await workspaceRunner.run(workspace: workspace) { [weak self] state in
+                    self?.hudController.update(state: state)
+                }
+                // HUD auto-dismisses on .completed via WorkspaceHUD's onChange
+            } catch {
+                hudController.update(state: .failed(error.localizedDescription))
+                // Show error alert after a short delay so user sees the HUD first
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    self.hudController.dismiss()
+                    showWorkspaceRunnerErrorAlert(error: error)
+                }
+            }
         }
     }
 
