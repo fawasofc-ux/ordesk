@@ -80,17 +80,19 @@ final class WorkspaceRunner {
         try await switchToNewDesktop()
 
         // Wait for the Space transition animation to complete
-        try await Task.sleep(for: .milliseconds(600))
+        try await Task.sleep(for: .milliseconds(800))
 
         // Step 3+4: Launch apps in order
         let apps = workspace.apps
+        print("[WorkspaceRunner] Launching \(apps.count) app(s)…")
         for (index, app) in apps.enumerated() {
+            print("[WorkspaceRunner] [\(index+1)/\(apps.count)] \(app.name) — \(app.bundleIdentifier)")
             transition(to: .launchingApps(current: app.name, index: index, total: apps.count))
             try await launchApplication(app)
 
             // Delay between launches to avoid macOS window race conditions
             if index < apps.count - 1 {
-                try await Task.sleep(for: .milliseconds(350))
+                try await Task.sleep(for: .milliseconds(500))
             }
         }
 
@@ -206,9 +208,14 @@ final class WorkspaceRunner {
 
     // MARK: - PART 3+4 — Launch Applications
 
-    /// Launches a single application by its bundle identifier.
-    /// Uses `NSWorkspace.shared.openApplication(at:)` so the new window
-    /// opens in the current (new) Desktop.
+    /// Launches or activates a single application on the current Desktop.
+    ///
+    /// Strategy:
+    /// 1. If the app is NOT running → launch it via NSWorkspace with `activates = true`
+    ///    so it opens a new window on the current Desktop.
+    /// 2. If the app IS already running → use AppleScript `tell application ... to activate`
+    ///    which brings it to the foreground on the current Desktop (creating a new window if needed).
+    /// 3. In both cases, follow up with an AppleScript activate to ensure visibility.
     private func launchApplication(_ app: AppInstance) async throws {
         guard !app.bundleIdentifier.isEmpty else {
             throw RunnerError.appLaunchFailed(
@@ -226,17 +233,50 @@ final class WorkspaceRunner {
             )
         }
 
-        let config = NSWorkspace.OpenConfiguration()
-        config.activates = false  // Don't steal focus — let them open quietly
-        config.addsToRecentItems = false
+        // Check if app is already running
+        let isAlreadyRunning = NSWorkspace.shared.runningApplications.contains {
+            $0.bundleIdentifier == app.bundleIdentifier
+        }
 
-        do {
-            try await NSWorkspace.shared.openApplication(at: appURL, configuration: config)
-        } catch {
-            throw RunnerError.appLaunchFailed(
-                appName: app.name,
-                reason: error.localizedDescription
-            )
+        if !isAlreadyRunning {
+            // Launch the app fresh — activates = true so it opens on the current Desktop
+            let config = NSWorkspace.OpenConfiguration()
+            config.activates = true
+            config.addsToRecentItems = false
+
+            do {
+                try await NSWorkspace.shared.openApplication(at: appURL, configuration: config)
+            } catch {
+                throw RunnerError.appLaunchFailed(
+                    appName: app.name,
+                    reason: error.localizedDescription
+                )
+            }
+
+            // Give the app time to finish launching and create its window
+            try await Task.sleep(for: .milliseconds(500))
+        } else {
+            // App is already running — use AppleScript to activate it on the current Desktop.
+            // This tells macOS to bring the app to the foreground, which opens/moves
+            // a window onto the active Space.
+            let activateScript = """
+            tell application id "\(app.bundleIdentifier)" to activate
+            """
+            let result = executeAppleScript(activateScript)
+            if let error = result.error {
+                // Fallback: try by name
+                let fallbackScript = """
+                tell application "\(app.name)" to activate
+                """
+                let fallbackResult = executeAppleScript(fallbackScript)
+                if let fallbackError = fallbackResult.error {
+                    print("[WorkspaceRunner] Failed to activate \(app.name): \(error) / \(fallbackError)")
+                    // Don't throw — the app is running, it just might not move to this Desktop
+                }
+            }
+
+            // Give the app time to move its window to the current Desktop
+            try await Task.sleep(for: .milliseconds(300))
         }
     }
 
