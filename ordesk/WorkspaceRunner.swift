@@ -128,25 +128,21 @@ final class WorkspaceRunner {
 
             // Use AXUIElement to unminimize any minimized windows
             unminimizeWindows(for: runningApp)
+            try await Task.sleep(for: .milliseconds(150))
 
-            // Activate via AppleScript (brings window to current Desktop)
+            // Activate the app — just a simple activate, no window counting
+            // (many apps like Figma/Electron don't support AppleScript window commands)
             let activateScript = """
-            tell application id "\(app.bundleIdentifier)"
-                activate
-                if (count of windows) = 0 then
-                    try
-                        make new document
-                    end try
-                end if
-            end tell
+            tell application id "\(app.bundleIdentifier)" to activate
             """
             let result = executeAppleScript(activateScript)
             if let error = result.error {
                 print("[WorkspaceRunner] AppleScript activate failed for \(app.name): \(error)")
-                // Fallback: try NSRunningApplication.activate
+                // Fallback: NSRunningApplication.activate
                 runningApp.activate()
             }
 
+            // Wait for the app to come to foreground
             try await Task.sleep(for: .milliseconds(400))
         } else {
             // App is NOT running -- launch fresh
@@ -218,10 +214,23 @@ final class WorkspaceRunner {
     /// Uses the grid layout logic from the editor to calculate screen ratios.
     private func positionAllWindows(apps: [AppInstance]) async {
         guard let screen = NSScreen.main else { return }
-        let visibleFrame = screen.visibleFrame // accounts for menu bar + dock
 
-        // Calculate window frames based on card sizes
-        let frames = calculateWindowFrames(apps: apps, in: visibleFrame)
+        // Convert NSScreen visibleFrame (Cocoa: origin bottom-left) to
+        // AX screen coordinates (origin top-left, y goes down)
+        let screenFrame = screen.frame
+        let visibleFrame = screen.visibleFrame
+
+        // In AX coordinates: top of visible area = distance from screen top to visible top
+        let menuBarHeight = screenFrame.maxY - visibleFrame.maxY
+        let axRect = CGRect(
+            x: visibleFrame.origin.x,
+            y: menuBarHeight,
+            width: visibleFrame.width,
+            height: visibleFrame.height
+        )
+
+        // Calculate window frames based on card sizes (in AX coordinates)
+        let frames = calculateWindowFrames(apps: apps, in: axRect)
 
         for (index, app) in apps.enumerated() {
             guard index < frames.count else { continue }
@@ -322,7 +331,7 @@ final class WorkspaceRunner {
             }
         }
 
-        // Convert grid placements to screen coordinates
+        // Convert grid placements to AX screen coordinates (origin top-left, Y goes down)
         let totalRows = max(maxRow, 1)
         let cellWidth = rect.width / CGFloat(totalColumns)
         let cellHeight = rect.height / CGFloat(totalRows)
@@ -331,7 +340,7 @@ final class WorkspaceRunner {
         var frames: [CGRect] = []
         for placement in placements {
             let x = rect.minX + CGFloat(placement.col) * cellWidth + padding
-            let y = rect.minY + rect.height - CGFloat(placement.row + placement.rowSpan) * cellHeight + padding
+            let y = rect.minY + CGFloat(placement.row) * cellHeight + padding
             let w = CGFloat(placement.colSpan) * cellWidth - padding * 2
             let h = CGFloat(placement.rowSpan) * cellHeight - padding * 2
 
