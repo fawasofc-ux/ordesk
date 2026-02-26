@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Carbon.HIToolbox
 
 // MARK: - Borderless window that accepts keyboard input
 
@@ -7,6 +8,88 @@ private class KeyableWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 }
+
+// MARK: - Global Hotkey Handler
+
+/// Registers a system-wide keyboard shortcut using Carbon's EventHotKey API.
+/// This works even when the app is in the background and the menu bar icon is hidden.
+private final class GlobalHotKeyManager {
+    private var hotKeyRef: EventHotKeyRef?
+    private var eventHandler: EventHandlerRef?
+    private let callback: () -> Void
+
+    /// Registers Ctrl+Option+O as the global hotkey.
+    init(callback: @escaping () -> Void) {
+        self.callback = callback
+        registerHotKey()
+    }
+
+    deinit {
+        if let hotKeyRef {
+            UnregisterEventHotKey(hotKeyRef)
+        }
+        if let eventHandler {
+            RemoveEventHandler(eventHandler)
+        }
+    }
+
+    private func registerHotKey() {
+        // Store self in a static so the C callback can reach it
+        GlobalHotKeyManager.current = self
+
+        var eventType = EventTypeSpec(
+            eventClass: OSType(kEventClassKeyboard),
+            eventKind: UInt32(kEventHotKeyPressed)
+        )
+
+        // Install the event handler
+        let status = InstallEventHandler(
+            GetApplicationEventTarget(),
+            { (_, event, _) -> OSStatus in
+                GlobalHotKeyManager.current?.callback()
+                return noErr
+            },
+            1,
+            &eventType,
+            nil,
+            &eventHandler
+        )
+
+        guard status == noErr else {
+            print("[GlobalHotKey] Failed to install event handler: \(status)")
+            return
+        }
+
+        // Register Ctrl+Option+O (keyCode 0x1F = "O")
+        let hotKeyID = EventHotKeyID(
+            signature: OSType(0x4F524445), // "ORDE"
+            id: 1
+        )
+
+        let modifiers = UInt32(optionKey | controlKey)
+        let keyCode = UInt32(kVK_ANSI_O)
+
+        let regStatus = RegisterEventHotKey(
+            keyCode,
+            modifiers,
+            hotKeyID,
+            GetApplicationEventTarget(),
+            0,
+            &hotKeyRef
+        )
+
+        if regStatus != noErr {
+            print("[GlobalHotKey] Failed to register hotkey: \(regStatus)")
+        } else {
+            print("[GlobalHotKey] Registered Ctrl+Option+O")
+        }
+    }
+
+    // Static reference for the C callback to reach the instance
+    private static var current: GlobalHotKeyManager?
+}
+
+// MARK: - App Delegate
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
@@ -19,15 +102,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var storeObservation: Any?
     private let workspaceRunner = WorkspaceRunner()
     private let hudController = WorkspaceHUDController()
+    private var hotKeyManager: GlobalHotKeyManager?
+    private var popoverWindow: NSWindow?  // Fallback window when status bar icon is hidden
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
         setupPopover()
         setupEventMonitor()
+        setupGlobalHotKey()
         observeStore()
 
         // Hide dock icon — menu bar only app
         NSApp.setActivationPolicy(.accessory)
+
+        // Show shortcut hint on first launch
+        showLaunchHintIfNeeded()
     }
 
     private func setupStatusItem() {
@@ -58,8 +147,189 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if let popover = self?.popover, popover.isShown {
                 popover.performClose(nil)
             }
+            // Also dismiss the fallback popover window
+            if self?.popoverWindow != nil {
+                self?.closePopoverWindow()
+            }
         }
     }
+
+    private func setupGlobalHotKey() {
+        hotKeyManager = GlobalHotKeyManager { [weak self] in
+            DispatchQueue.main.async {
+                self?.togglePopoverSmart()
+            }
+        }
+    }
+
+    // MARK: - Smart Popover Toggle
+
+    /// Toggles the popover. If the status bar icon is visible, attaches to it.
+    /// If the icon is hidden (crowded menu bar), shows a floating panel instead.
+    private func togglePopoverSmart() {
+        // If popover is already showing, close it
+        if let popover = popover, popover.isShown {
+            popover.performClose(nil)
+            return
+        }
+
+        // If fallback window is showing, close it
+        if popoverWindow != nil {
+            closePopoverWindow()
+            return
+        }
+
+        // Try to show attached to the status bar button
+        if let button = statusItem?.button, isStatusItemVisible(button) {
+            showPopoverAttached(to: button)
+        } else {
+            // Status bar icon is hidden — show as floating panel near top-right
+            showPopoverAsWindow()
+        }
+    }
+
+    /// Checks if the status bar button is actually visible on screen.
+    private func isStatusItemVisible(_ button: NSStatusBarButton) -> Bool {
+        guard let window = button.window else { return false }
+        let buttonFrameInScreen = window.convertToScreen(button.convert(button.bounds, to: nil))
+        // Check if the button's frame is within any screen's visible area
+        for screen in NSScreen.screens {
+            if screen.frame.intersects(buttonFrameInScreen) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Shows the popover attached to the status bar button (normal behavior).
+    private func showPopoverAttached(to button: NSStatusBarButton) {
+        guard let popover = popover else { return }
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
+    }
+
+    /// Shows the popover content as a floating panel near the top-right of the screen.
+    /// Used when the menu bar icon is hidden due to a crowded menu bar.
+    private func showPopoverAsWindow() {
+        closePopoverWindow()
+
+        guard let screen = NSScreen.main else { return }
+
+        let contentView = MenuBarPopover()
+            .environment(store)
+
+        let hostingView = NSHostingController(rootView: contentView)
+
+        let panelWidth: CGFloat = 360
+        let panelHeight: CGFloat = 520
+
+        let window = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hostingView
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.level = .floating
+        window.hasShadow = true
+        window.collectionBehavior = [.fullScreenAuxiliary]
+
+        // Position near top-right, below the menu bar
+        let menuBarHeight: CGFloat = NSStatusBar.system.thickness
+        let padding: CGFloat = 8
+        let origin = NSPoint(
+            x: screen.frame.maxX - panelWidth - padding,
+            y: screen.frame.maxY - menuBarHeight - panelHeight - padding
+        )
+        window.setFrameOrigin(origin)
+
+        // Fade in
+        window.alphaValue = 0
+        window.makeKeyAndOrderFront(nil)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            window.animator().alphaValue = 1
+        }
+
+        popoverWindow = window
+    }
+
+    private func closePopoverWindow() {
+        guard let window = popoverWindow else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            window.animator().alphaValue = 0
+        } completionHandler: {
+            Task { @MainActor [weak self] in
+                self?.popoverWindow?.orderOut(nil)
+                self?.popoverWindow = nil
+            }
+        }
+    }
+
+    // MARK: - Launch Hint
+
+    /// Shows a brief notification on first launch to tell the user about the shortcut.
+    private func showLaunchHintIfNeeded() {
+        let key = "hasShownShortcutHint"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+
+        // Show after a short delay so the app is fully initialized
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            self?.showShortcutHint()
+        }
+    }
+
+    private func showShortcutHint() {
+        guard let screen = NSScreen.main else { return }
+
+        let hintView = ShortcutHintView()
+        let hostingView = NSHostingController(rootView: hintView)
+
+        let window = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 80),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hostingView
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.level = .floating
+        window.hasShadow = false
+        window.ignoresMouseEvents = true
+
+        let menuBarHeight: CGFloat = NSStatusBar.system.thickness
+        let origin = NSPoint(
+            x: screen.frame.midX - 150,
+            y: screen.frame.maxY - menuBarHeight - 100
+        )
+        window.setFrameOrigin(origin)
+
+        window.alphaValue = 0
+        window.orderFrontRegardless()
+
+        // Fade in
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.3
+            window.animator().alphaValue = 1
+        }
+
+        // Auto dismiss after 4 seconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.5
+                window.animator().alphaValue = 0
+            } completionHandler: {
+                window.orderOut(nil)
+            }
+        }
+    }
+
+    // MARK: - Store Observation
 
     private func observeStore() {
         func observeEditor() {
@@ -317,19 +587,76 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func togglePopover() {
-        guard let popover = popover, let button = statusItem?.button else { return }
-
-        if popover.isShown {
-            popover.performClose(nil)
-        } else {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
-        }
+        togglePopoverSmart()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         if let eventMonitor {
             NSEvent.removeMonitor(eventMonitor)
         }
+    }
+}
+
+// MARK: - Shortcut Hint View
+
+/// A small floating toast that shows on first launch to tell the user about the global shortcut.
+private struct ShortcutHintView: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "keyboard")
+                .font(.system(size: 16))
+                .foregroundStyle(DesignSystem.primaryBlue)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Ordesk is running")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(DesignSystem.textPrimary)
+
+                HStack(spacing: 4) {
+                    Text("Press")
+                        .font(.system(size: 11))
+                        .foregroundStyle(DesignSystem.textSecondary)
+
+                    HStack(spacing: 2) {
+                        KeyCapView(text: "\u{2303}")
+                        KeyCapView(text: "\u{2325}")
+                        KeyCapView(text: "O")
+                    }
+
+                    Text("to open anytime")
+                        .font(.system(size: 11))
+                        .foregroundStyle(DesignSystem.textSecondary)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(.ultraThinMaterial)
+                .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
+        )
+    }
+}
+
+/// A small key cap badge.
+private struct KeyCapView: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 10, weight: .medium, design: .rounded))
+            .foregroundStyle(DesignSystem.textPrimary)
+            .frame(minWidth: 18, minHeight: 16)
+            .padding(.horizontal, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(DesignSystem.elevatedSurface)
+                    .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
+            )
     }
 }
