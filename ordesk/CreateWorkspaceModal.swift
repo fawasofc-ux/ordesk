@@ -11,8 +11,9 @@ struct DetectedApp: Identifiable {
     let bundleID: String?
     let isRunning: Bool
     var isSelected: Bool
+    let screenIndex: Int       // Which display this app's window is on (0 = main)
 
-    init(id: String = UUID().uuidString, name: String, icon: String = "app", appIcon: NSImage? = nil, bundleID: String? = nil, isRunning: Bool = false, isSelected: Bool = false) {
+    init(id: String = UUID().uuidString, name: String, icon: String = "app", appIcon: NSImage? = nil, bundleID: String? = nil, isRunning: Bool = false, isSelected: Bool = false, screenIndex: Int = 0) {
         self.id = id
         self.name = name
         self.icon = icon
@@ -20,6 +21,7 @@ struct DetectedApp: Identifiable {
         self.bundleID = bundleID
         self.isRunning = isRunning
         self.isSelected = isSelected
+        self.screenIndex = screenIndex
     }
 }
 
@@ -33,6 +35,7 @@ struct CreateWorkspaceModal: View {
     @State private var reuseOpenApps = true
     @State private var displayMode: DisplayMode = .single
     @State private var detectedApps: [DetectedApp] = []
+    @State private var detectedDisplays: [DisplayInfo] = []
     @State private var isLoadingApps = true
     @State private var needsPermission = false
 
@@ -173,10 +176,10 @@ struct CreateWorkspaceModal: View {
                 // Workspace name input
                 nameInputSection
 
-                // Display mode selector
+                // Display mode (auto-detected, non-interactive)
                 displayModeSection
 
-                // Detected apps list
+                // Detected apps list (per-display when multi-monitor)
                 if isLoadingApps {
                     loadingView
                 } else {
@@ -197,7 +200,7 @@ struct CreateWorkspaceModal: View {
         VStack(spacing: 10) {
             ProgressView()
                 .controlSize(.small)
-            Text("Detecting running apps…")
+            Text("Detecting windows and displays...")
                 .font(.system(size: 12))
                 .foregroundStyle(DesignSystem.textSecondary)
         }
@@ -226,7 +229,7 @@ struct CreateWorkspaceModal: View {
         }
     }
 
-    // MARK: - Display Mode
+    // MARK: - Display Mode (auto-detected, non-interactive)
 
     private var displayModeSection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -236,27 +239,20 @@ struct CreateWorkspaceModal: View {
 
             HStack(spacing: 0) {
                 ForEach(DisplayMode.allCases, id: \.self) { mode in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            displayMode = mode
-                            enforceMaxApps()
-                        }
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: mode.icon)
-                                .font(.system(size: 10))
-                            Text(mode.label)
-                                .font(.system(size: 11, weight: .medium))
-                        }
-                        .foregroundStyle(displayMode == mode ? .white : DesignSystem.textSecondary)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 7)
-                        .background(
-                            Capsule()
-                                .fill(displayMode == mode ? DesignSystem.primaryBlue : Color.clear)
-                        )
+                    HStack(spacing: 5) {
+                        Image(systemName: mode.icon)
+                            .font(.system(size: 10))
+                        Text(mode.label)
+                            .font(.system(size: 11, weight: .medium))
                     }
-                    .buttonStyle(.plain)
+                    .foregroundStyle(displayMode == mode ? .white : DesignSystem.textSecondary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(
+                        Capsule()
+                            .fill(displayMode == mode ? DesignSystem.primaryBlue : Color.clear)
+                    )
+                    .opacity(displayMode == mode ? 1.0 : 0.4)
                 }
             }
             .padding(3)
@@ -266,17 +262,41 @@ struct CreateWorkspaceModal: View {
                     .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
             )
 
-            Text("Max \(maxApps) apps • Min \(minApps) app\(minApps > 1 ? "s" : "") to save")
-                .font(.system(size: 11))
-                .foregroundStyle(DesignSystem.textSecondary)
+            HStack(spacing: 4) {
+                Image(systemName: "display")
+                    .font(.system(size: 10))
+                Text("\(detectedDisplays.count) display\(detectedDisplays.count != 1 ? "s" : "") detected")
+                    .font(.system(size: 11))
+            }
+            .foregroundStyle(DesignSystem.textSecondary)
         }
     }
 
-    // MARK: - Detected Apps
+    // MARK: - Detected Apps (display-aware)
 
     private var detectedAppsSection: some View {
+        VStack(spacing: 16) {
+            if detectedDisplays.count <= 1 {
+                // Single display: flat list
+                singleDisplayAppList
+            } else {
+                // Multi-display: separate lists per display
+                ForEach(detectedDisplays) { display in
+                    displayAppList(for: display)
+                }
+
+                // Other running apps without visible windows
+                let otherApps = detectedApps.filter { !hasVisibleWindow(bundleID: $0.bundleID) }
+                if !otherApps.isEmpty {
+                    otherRunningAppsList
+                }
+            }
+        }
+    }
+
+    /// Single display: one flat list with header
+    private var singleDisplayAppList: some View {
         VStack(spacing: 8) {
-            // Header row
             HStack {
                 Text("Detected Apps")
                     .font(.system(size: 11, weight: .medium))
@@ -289,9 +309,77 @@ struct CreateWorkspaceModal: View {
                     .foregroundStyle(isAtMaxApps ? DesignSystem.primaryBlue : DesignSystem.textSecondary)
             }
 
-            // App list
-            VStack(spacing: 0) {
-                ForEach(Array(detectedApps.enumerated()), id: \.element.id) { index, app in
+            appListView(apps: detectedApps)
+        }
+    }
+
+    /// Per-display app list with display header
+    private func displayAppList(for display: DisplayInfo) -> some View {
+        let displayApps = detectedApps.filter { $0.screenIndex == display.id && hasVisibleWindow(bundleID: $0.bundleID) }
+
+        return VStack(spacing: 8) {
+            HStack {
+                HStack(spacing: 6) {
+                    Image(systemName: display.isMain ? "laptopcomputer" : "display")
+                        .font(.system(size: 10))
+                        .foregroundStyle(DesignSystem.primaryBlue)
+                    Text(display.name)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(DesignSystem.textSecondary)
+                }
+
+                Spacer()
+
+                let displaySelected = displayApps.filter(\.isSelected).count
+                Text("\(displaySelected) selected")
+                    .font(.system(size: 11))
+                    .foregroundStyle(DesignSystem.textSecondary)
+            }
+
+            if displayApps.isEmpty {
+                Text("No open windows on this display")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(DesignSystem.elevatedSurface)
+                            .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
+                    )
+            } else {
+                appListView(apps: displayApps)
+            }
+        }
+    }
+
+    /// Other running apps that have no visible windows
+    private var otherRunningAppsList: some View {
+        let otherApps = detectedApps.filter { !hasVisibleWindow(bundleID: $0.bundleID) }
+
+        return VStack(spacing: 8) {
+            HStack {
+                HStack(spacing: 6) {
+                    Image(systemName: "app.dashed")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                    Text("Other Running Apps")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                }
+
+                Spacer()
+            }
+
+            appListView(apps: otherApps)
+        }
+    }
+
+    /// Reusable app list view
+    private func appListView(apps: [DetectedApp]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(apps) { app in
+                if let index = detectedApps.firstIndex(where: { $0.id == app.id }) {
                     DetectedAppRow(
                         app: app,
                         isSelected: Binding(
@@ -305,12 +393,12 @@ struct CreateWorkspaceModal: View {
                     )
                 }
             }
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(DesignSystem.elevatedSurface)
-                    .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
-            )
         }
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(DesignSystem.elevatedSurface)
+                .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
+        )
     }
 
     // MARK: - Options
@@ -385,19 +473,66 @@ struct CreateWorkspaceModal: View {
         }
     }
 
+    /// Tracks which bundleIDs had visible windows (set during populateRealApps)
+    @State private var visibleWindowBundleIDs: Set<String> = []
+
+    private func hasVisibleWindow(bundleID: String?) -> Bool {
+        guard let id = bundleID else { return false }
+        return visibleWindowBundleIDs.contains(id)
+    }
+
     private func populateRealApps() {
-        let running = RunningAppsService.runningApps()
-        detectedApps = running.map { info in
-            DetectedApp(
-                id: info.id,
-                name: info.name,
-                icon: AppIconMapper.sfSymbol(for: info.name),
-                appIcon: info.icon,
-                bundleID: info.id,
-                isRunning: info.isRunning,
-                isSelected: true
-            )
+        // 1. Auto-detect displays
+        detectedDisplays = WindowDetectionService.connectedDisplays()
+        displayMode = WindowDetectionService.autoDetectedDisplayMode()
+
+        // 2. Get apps with visible windows, grouped by screen
+        let appsByScreen = WindowDetectionService.appsWithVisibleWindows()
+
+        // 3. Track which bundleIDs have visible windows
+        var visibleIDs: Set<String> = []
+        for (_, windowInfos) in appsByScreen {
+            for info in windowInfos {
+                visibleIDs.insert(info.bundleIdentifier)
+            }
         }
+        visibleWindowBundleIDs = visibleIDs
+
+        // 4. Build detected apps list
+        var apps: [DetectedApp] = []
+
+        // First: apps with visible windows (pre-selected, assigned to their screen)
+        for screenIndex in detectedDisplays.map(\.id).sorted() {
+            let windowInfos = appsByScreen[screenIndex] ?? []
+            for info in windowInfos {
+                apps.append(DetectedApp(
+                    name: info.appName,
+                    icon: AppIconMapper.sfSymbol(for: info.appName),
+                    appIcon: info.icon,
+                    bundleID: info.bundleIdentifier,
+                    isRunning: true,
+                    isSelected: true,
+                    screenIndex: screenIndex
+                ))
+            }
+        }
+
+        // Second: running apps WITHOUT visible windows (not selected, shown as "other")
+        let allRunning = RunningAppsService.runningApps()
+        for runningApp in allRunning {
+            if visibleIDs.contains(runningApp.id) { continue }
+            apps.append(DetectedApp(
+                name: runningApp.name,
+                icon: AppIconMapper.sfSymbol(for: runningApp.name),
+                appIcon: runningApp.icon,
+                bundleID: runningApp.id,
+                isRunning: runningApp.isRunning,
+                isSelected: false,
+                screenIndex: 0
+            ))
+        }
+
+        detectedApps = apps
         enforceMaxApps()
         isLoadingApps = false
     }
@@ -405,12 +540,17 @@ struct CreateWorkspaceModal: View {
     // MARK: - Actions
 
     private func saveWorkspace() {
+        // De-duplicate by bundleIdentifier (same app may appear on multiple screens)
+        var seenBundleIDs: Set<String> = []
         let selectedApps = detectedApps
             .filter(\.isSelected)
-            .map { detected in
-                AppInstance(
+            .compactMap { detected -> AppInstance? in
+                guard let bundleID = detected.bundleID, !bundleID.isEmpty else { return nil }
+                guard !seenBundleIDs.contains(bundleID) else { return nil }
+                seenBundleIDs.insert(bundleID)
+                return AppInstance(
                     name: detected.name,
-                    bundleIdentifier: detected.bundleID ?? "",
+                    bundleIdentifier: bundleID,
                     icon: detected.icon,
                     isRunning: detected.isRunning
                 )
