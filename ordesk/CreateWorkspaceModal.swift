@@ -98,7 +98,72 @@ struct CreateWorkspaceModal: View {
             .onAppear {
                 loadApps()
             }
+            // Re-detect displays instantly when monitors are connected/disconnected
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
+                if !isLoadingApps && !needsPermission {
+                    refreshDisplayDetection()
+                }
+            }
         }
+    }
+
+    /// Re-detects displays and rebuilds the app list when screens change
+    /// (e.g. monitor plugged in or disconnected).
+    private func refreshDisplayDetection() {
+        let newDisplays = WindowDetectionService.connectedDisplays()
+        let newMode = WindowDetectionService.autoDetectedDisplayMode()
+
+        // Only refresh if display count actually changed
+        guard newDisplays.count != detectedDisplays.count else { return }
+
+        detectedDisplays = newDisplays
+        displayMode = newMode
+
+        // Re-detect which apps have visible windows on which screens
+        let appsByScreen = WindowDetectionService.appsWithVisibleWindows()
+
+        var visibleIDs: Set<String> = []
+        for (_, windowInfos) in appsByScreen {
+            for info in windowInfos {
+                visibleIDs.insert(info.bundleIdentifier)
+            }
+        }
+        visibleWindowBundleIDs = visibleIDs
+
+        // Rebuild the detected apps list
+        var apps: [DetectedApp] = []
+
+        for screenIndex in newDisplays.map(\.id).sorted() {
+            let windowInfos = appsByScreen[screenIndex] ?? []
+            for info in windowInfos {
+                apps.append(DetectedApp(
+                    name: info.appName,
+                    icon: AppIconMapper.sfSymbol(for: info.appName),
+                    appIcon: info.icon,
+                    bundleID: info.bundleIdentifier,
+                    isRunning: true,
+                    isSelected: true,
+                    screenIndex: screenIndex
+                ))
+            }
+        }
+
+        let allRunning = RunningAppsService.runningApps()
+        for runningApp in allRunning {
+            if visibleIDs.contains(runningApp.id) { continue }
+            apps.append(DetectedApp(
+                name: runningApp.name,
+                icon: AppIconMapper.sfSymbol(for: runningApp.name),
+                appIcon: runningApp.icon,
+                bundleID: runningApp.id,
+                isRunning: runningApp.isRunning,
+                isSelected: false,
+                screenIndex: 0
+            ))
+        }
+
+        detectedApps = apps
+        enforceMaxApps()
     }
 
     // MARK: - Permission View

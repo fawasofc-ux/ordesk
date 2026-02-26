@@ -104,12 +104,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let hudController = WorkspaceHUDController()
     private var hotKeyManager: GlobalHotKeyManager?
     private var popoverWindow: NSWindow?  // Fallback window when status bar icon is hidden
+    private var screenChangeObserver: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
         setupPopover()
         setupEventMonitor()
         setupGlobalHotKey()
+        setupScreenChangeMonitor()
         observeStore()
 
         // Hide dock icon — menu bar only app
@@ -117,6 +119,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Show shortcut hint on first launch
         showLaunchHintIfNeeded()
+    }
+
+    /// Listens for display connect/disconnect events and re-centers any open windows.
+    private func setupScreenChangeMonitor() {
+        screenChangeObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleScreenChange()
+        }
+    }
+
+    /// Re-centers open modal/editor windows on the current main screen
+    /// when displays are connected or disconnected.
+    private func handleScreenChange() {
+        guard let screen = NSScreen.main else { return }
+        let frame = screen.frame
+
+        // Re-center the create modal window
+        if let window = createModalWindow, window.isVisible {
+            window.setFrame(frame, display: true)
+        }
+
+        // Re-center the editor window
+        if let window = editorWindow, window.isVisible {
+            window.setFrame(frame, display: true)
+        }
+
+        // Re-center the settings window
+        if let window = settingsWindow, window.isVisible {
+            window.setFrame(frame, display: true)
+        }
     }
 
     private func setupStatusItem() {
