@@ -16,7 +16,15 @@
       "Bash(# Try extracting raw text from the protobuf IWA files strings /tmp/ordesk_pages/Index/Document.iwa)",
       "Bash(# Extract all readable strings from all IWA files, filter for substantial text for f in /tmp/ordesk_pages/Index/*.iwa /tmp/ordesk_pages/Index/Tables/*.iwa; do strings -n 10 \"\"$f\"\" done)",
       "Bash(brew install:*)",
-      "Bash(pdftotext:*)"
+      "Bash(pdftotext:*)",
+      "Bash(git add:*)",
+      "Bash(git push:*)",
+      "Bash(git remote set-url:*)",
+      "Bash(git checkout:*)",
+      "Bash(git pull:*)",
+      "Bash(git stash:*)",
+      "Bash(codesign:*)",
+      "Bash(ls:*)"
     ]
   }
 }

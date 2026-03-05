@@ -49,6 +49,8 @@ struct CreateWorkspaceModal: View {
         detectedApps.count
     }
 
+    private let maxAppsPerDisplay = 4
+
     private var maxApps: Int {
         displayMode.maxApps
     }
@@ -66,6 +68,16 @@ struct CreateWorkspaceModal: View {
 
     private var isAtMaxApps: Bool {
         selectedCount >= maxApps
+    }
+
+    /// Number of selected apps on a given screen index
+    private func selectedCount(forScreen screenIndex: Int) -> Int {
+        detectedApps.filter { $0.screenIndex == screenIndex && $0.isSelected }.count
+    }
+
+    /// Whether a specific display has reached its per-display max
+    private func isDisplayAtMax(_ screenIndex: Int) -> Bool {
+        selectedCount(forScreen: screenIndex) >= maxAppsPerDisplay
     }
 
     var body: some View {
@@ -369,12 +381,12 @@ struct CreateWorkspaceModal: View {
 
                 Spacer()
 
-                Text("\(selectedCount)/\(maxApps) selected")
+                Text("\(selectedCount) of \(maxAppsPerDisplay) selected")
                     .font(.system(size: 11))
                     .foregroundStyle(isAtMaxApps ? DesignSystem.primaryBlue : DesignSystem.textSecondary)
             }
 
-            appListView(apps: detectedApps)
+            appListView(apps: detectedApps, screenIndex: 0)
         }
     }
 
@@ -396,9 +408,9 @@ struct CreateWorkspaceModal: View {
                 Spacer()
 
                 let displaySelected = displayApps.filter(\.isSelected).count
-                Text("\(displaySelected) selected")
+                Text("\(displaySelected) of \(maxAppsPerDisplay) selected")
                     .font(.system(size: 11))
-                    .foregroundStyle(DesignSystem.textSecondary)
+                    .foregroundStyle(isDisplayAtMax(display.id) ? DesignSystem.primaryBlue : DesignSystem.textSecondary)
             }
 
             if displayApps.isEmpty {
@@ -413,7 +425,7 @@ struct CreateWorkspaceModal: View {
                             .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
                     )
             } else {
-                appListView(apps: displayApps)
+                appListView(apps: displayApps, screenIndex: display.id)
             }
         }
     }
@@ -436,25 +448,64 @@ struct CreateWorkspaceModal: View {
                 Spacer()
             }
 
-            appListView(apps: otherApps)
+            otherAppsListView(apps: otherApps)
         }
     }
 
-    /// Reusable app list view
-    private func appListView(apps: [DetectedApp]) -> some View {
+    /// App list for "Other Running Apps" — each row has an "Add to display" menu
+    private func otherAppsListView(apps: [DetectedApp]) -> some View {
         VStack(spacing: 0) {
             ForEach(apps) { app in
                 if let index = detectedApps.firstIndex(where: { $0.id == app.id }) {
+                    OtherAppRow(
+                        app: app,
+                        displays: detectedDisplays,
+                        isDisplayAtMax: { isDisplayAtMax($0) },
+                        onAddToDisplay: { targetScreenIndex in
+                            guard !isDisplayAtMax(targetScreenIndex) else { return }
+                            detectedApps[index].isSelected = true
+                            detectedApps[index] = DetectedApp(
+                                id: detectedApps[index].id,
+                                name: detectedApps[index].name,
+                                icon: detectedApps[index].icon,
+                                appIcon: detectedApps[index].appIcon,
+                                bundleID: detectedApps[index].bundleID,
+                                isRunning: detectedApps[index].isRunning,
+                                isSelected: true,
+                                screenIndex: targetScreenIndex
+                            )
+                            // Track as visible so it moves to the display section
+                            if let bundleID = detectedApps[index].bundleID {
+                                visibleWindowBundleIDs.insert(bundleID)
+                            }
+                        }
+                    )
+                }
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(DesignSystem.elevatedSurface)
+                .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
+        )
+    }
+
+    /// Reusable app list view with per-display max enforcement
+    private func appListView(apps: [DetectedApp], screenIndex: Int) -> some View {
+        VStack(spacing: 0) {
+            ForEach(apps) { app in
+                if let index = detectedApps.firstIndex(where: { $0.id == app.id }) {
+                    let displayFull = isDisplayAtMax(screenIndex)
                     DetectedAppRow(
                         app: app,
                         isSelected: Binding(
                             get: { detectedApps[index].isSelected },
                             set: { newValue in
-                                if newValue && isAtMaxApps { return }
+                                if newValue && displayFull { return }
                                 detectedApps[index].isSelected = newValue
                             }
                         ),
-                        isDisabled: !detectedApps[index].isSelected && isAtMaxApps
+                        isDisabled: !detectedApps[index].isSelected && displayFull
                     )
                 }
             }
@@ -484,31 +535,57 @@ struct CreateWorkspaceModal: View {
         }
     }
 
+    // MARK: - Info Banner
+
+    private var infoBanner: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "info.circle")
+                .font(.system(size: 11))
+                .foregroundStyle(DesignSystem.primaryBlue)
+
+            Text("You can add new apps and organize them by clicking the Save & Edit button.")
+                .font(.system(size: 11))
+                .foregroundStyle(DesignSystem.textSecondary)
+                .lineLimit(2)
+
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+        .background(DesignSystem.elevatedSurface.opacity(0.5))
+    }
+
     // MARK: - Footer
 
     private var modalFooter: some View {
-        HStack {
-            Spacer()
+        VStack(spacing: 0) {
+            infoBanner
 
-            // Cancel button
-            Button(action: onDismiss) {
-                Text("Cancel")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(DesignSystem.textSecondary)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 7)
+            Divider().opacity(0.3)
+
+            HStack {
+                Spacer()
+
+                // Cancel button
+                Button(action: onDismiss) {
+                    Text("Cancel")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(DesignSystem.textSecondary)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 7)
+                }
+                .buttonStyle(.plain)
+
+                // Save & Edit button
+                SaveButton(
+                    label: "Save & Edit",
+                    isEnabled: canSave,
+                    action: saveWorkspace
+                )
             }
-            .buttonStyle(.plain)
-
-            // Save & Edit button
-            SaveButton(
-                label: "Save & Edit",
-                isEnabled: canSave,
-                action: saveWorkspace
-            )
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
         .background(DesignSystem.elevatedSurface.opacity(0.3))
     }
 
@@ -644,13 +721,16 @@ struct CreateWorkspaceModal: View {
     }
 
     private func enforceMaxApps() {
-        var selectedSoFar = 0
+        // Enforce per-display limit of maxAppsPerDisplay
+        var selectedPerScreen: [Int: Int] = [:]
         for i in detectedApps.indices {
             if detectedApps[i].isSelected {
-                if selectedSoFar >= maxApps {
+                let screen = detectedApps[i].screenIndex
+                let current = selectedPerScreen[screen, default: 0]
+                if current >= maxAppsPerDisplay {
                     detectedApps[i].isSelected = false
                 } else {
-                    selectedSoFar += 1
+                    selectedPerScreen[screen] = current + 1
                 }
             }
         }
@@ -726,6 +806,112 @@ struct DetectedAppRow: View {
             )
         }
         .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.1)) {
+                isHovered = hovering
+            }
+        }
+    }
+}
+
+// MARK: - Other App Row (with "Add to Display" menu)
+
+struct OtherAppRow: View {
+    let app: DetectedApp
+    let displays: [DisplayInfo]
+    let isDisplayAtMax: (Int) -> Bool
+    let onAddToDisplay: (Int) -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            // App icon
+            if let nsImage = app.appIcon {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 24, height: 24)
+                    .clipShape(RoundedRectangle(cornerRadius: 5))
+            } else {
+                Image(systemName: app.icon)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+                    .background(
+                        Circle()
+                            .fill(DesignSystem.elevatedSurface)
+                            .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
+                    )
+            }
+
+            // App name
+            Text(app.name)
+                .font(.system(size: 13))
+                .foregroundStyle(DesignSystem.textPrimary)
+
+            Spacer()
+
+            // Running badge
+            if app.isRunning {
+                Text("Running")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(DesignSystem.textSecondary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(
+                        Capsule()
+                            .fill(DesignSystem.elevatedSurface)
+                            .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
+                    )
+            }
+
+            // Add to display menu
+            if displays.count > 1 {
+                Menu {
+                    ForEach(displays) { display in
+                        let atMax = isDisplayAtMax(display.id)
+                        Button {
+                            onAddToDisplay(display.id)
+                        } label: {
+                            HStack {
+                                Image(systemName: display.isMain ? "laptopcomputer" : "display")
+                                Text(display.name)
+                                if atMax {
+                                    Text("(Full)")
+                                }
+                            }
+                        }
+                        .disabled(atMax)
+                    }
+                } label: {
+                    Image(systemName: "plus.circle")
+                        .font(.system(size: 14))
+                        .foregroundStyle(DesignSystem.primaryBlue)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            } else if let firstDisplay = displays.first {
+                Button {
+                    onAddToDisplay(firstDisplay.id)
+                } label: {
+                    Image(systemName: "plus.circle")
+                        .font(.system(size: 14))
+                        .foregroundStyle(
+                            isDisplayAtMax(firstDisplay.id)
+                                ? DesignSystem.textSecondary.opacity(0.4)
+                                : DesignSystem.primaryBlue
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(isDisplayAtMax(firstDisplay.id))
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(isHovered ? DesignSystem.hoverBackground : Color.clear)
+        )
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.1)) {
                 isHovered = hovering

@@ -15,7 +15,6 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
-				ordesk.entitlements,
 			);
 			target = 98FA912A2F45ACEC007D80E1 /* ordesk */;
 		};

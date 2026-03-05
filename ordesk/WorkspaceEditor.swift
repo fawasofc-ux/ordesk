@@ -68,18 +68,18 @@ struct WorkspaceEditor: View {
 
             HStack(spacing: 8) {
                 // Save button
-                Button {
-                    saveAndDismiss()
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "square.and.arrow.down")
-                            .font(.system(size: 12))
-                        Text("Save")
-                            .font(.system(size: 13, weight: .medium))
-                    }
-                    .foregroundStyle(DesignSystem.primaryBlue)
-                }
-                .buttonStyle(.plain)
+//                Button {
+//                    saveAndDismiss()
+//                } label: {
+//                    HStack(spacing: 5) {
+//                        Image(systemName: "square.and.arrow.down")
+//                            .font(.system(size: 12))
+//                        Text("Save")
+//                            .font(.system(size: 13, weight: .medium))
+//                    }
+//                    .foregroundStyle(DesignSystem.primaryBlue)
+//                }
+//                .buttonStyle(.plain)
 
                 // Close button
                 Button(action: onDismiss) {
@@ -232,9 +232,9 @@ struct WorkspaceEditor: View {
 
                 // Saved Layouts button
                 DockPillButton(
-                    icon: "sparkles",
-                    label: "Saved Layouts",
-                    action: {}
+                    icon: "save",
+                    label: "Save Layout",
+                    action: {saveAndDismiss()}
                 )
             }
             .padding(.horizontal, 24)
