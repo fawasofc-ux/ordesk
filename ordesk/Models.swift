@@ -15,6 +15,7 @@ struct AppInstance: Identifiable, Codable, Equatable {
     var position: CGPoint?
     var size: CGSize?
     var cardSize: AppCardSize
+    var displayIndex: Int          // Which display this app is assigned to (0 = main)
 
     init(
         id: String = UUID().uuidString,
@@ -24,7 +25,8 @@ struct AppInstance: Identifiable, Codable, Equatable {
         isRunning: Bool = false,
         position: CGPoint? = nil,
         size: CGSize? = nil,
-        cardSize: AppCardSize = .small
+        cardSize: AppCardSize = .small,
+        displayIndex: Int = 0
     ) {
         self.id = id
         self.name = name
@@ -34,6 +36,21 @@ struct AppInstance: Identifiable, Codable, Equatable {
         self.position = position
         self.size = size
         self.cardSize = cardSize
+        self.displayIndex = displayIndex
+    }
+
+    // Custom decoder for backward compatibility — old workspaces missing `displayIndex` default to 0
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        bundleIdentifier = try container.decode(String.self, forKey: .bundleIdentifier)
+        icon = try container.decode(String.self, forKey: .icon)
+        isRunning = try container.decode(Bool.self, forKey: .isRunning)
+        position = try container.decodeIfPresent(CGPoint.self, forKey: .position)
+        size = try container.decodeIfPresent(CGSize.self, forKey: .size)
+        cardSize = try container.decode(AppCardSize.self, forKey: .cardSize)
+        displayIndex = try container.decodeIfPresent(Int.self, forKey: .displayIndex) ?? 0
     }
 
     // MARK: - Runtime icon (not persisted)

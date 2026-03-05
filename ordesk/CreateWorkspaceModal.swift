@@ -694,7 +694,8 @@ struct CreateWorkspaceModal: View {
                     name: detected.name,
                     bundleIdentifier: bundleID,
                     icon: detected.icon,
-                    isRunning: detected.isRunning
+                    isRunning: detected.isRunning,
+                    displayIndex: detected.screenIndex
                 )
             }
 
