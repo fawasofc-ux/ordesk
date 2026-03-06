@@ -3,6 +3,7 @@ import SwiftUI
 struct WorkspaceRow: View {
     let workspace: Workspace
     let timeAgo: String
+    var isActive: Bool = false
     var onRun: () -> Void
     var onEdit: () -> Void
     var onDelete: () -> Void
@@ -11,13 +12,35 @@ struct WorkspaceRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
+            // Active indicator dot (left edge)
+            if isActive {
+                Circle()
+                    .fill(DesignSystem.runningGreen)
+                    .frame(width: 8, height: 8)
+                    .shadow(color: DesignSystem.runningGreen.opacity(0.5), radius: 3)
+            }
+
             AppIconCluster(apps: workspace.apps)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(workspace.name)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(DesignSystem.textPrimary)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(workspace.name)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(DesignSystem.textPrimary)
+                        .lineLimit(1)
+
+                    if isActive {
+                        Text("Active workspace")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(DesignSystem.runningGreen)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule()
+                                    .fill(DesignSystem.runningGreen.opacity(0.12))
+                            )
+                    }
+                }
 
                 Text("\(timeAgo) \u{2022} \(workspace.apps.count) apps")
                     .font(.system(size: 11))
@@ -46,7 +69,9 @@ struct WorkspaceRow: View {
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(isHovered ? DesignSystem.hoverBackground : Color.clear)
+                .fill(isActive && !isHovered
+                      ? DesignSystem.runningGreen.opacity(0.05)
+                      : isHovered ? DesignSystem.hoverBackground : Color.clear)
         )
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
@@ -97,6 +122,7 @@ struct ActionButton: View {
             lastUsed: Date().addingTimeInterval(-3 * 3600)
         ),
         timeAgo: "about 3 hours ago",
+        isActive: true,
         onRun: {},
         onEdit: {},
         onDelete: {}

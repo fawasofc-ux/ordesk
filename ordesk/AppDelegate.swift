@@ -99,6 +99,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var editorWindow: NSWindow?
     private var createModalWindow: NSWindow?
     private var settingsWindow: NSWindow?
+    private var clearWorkspaceWindow: NSWindow?
     private var storeObservation: Any?
     private let workspaceRunner = WorkspaceRunner()
     private let hudController = WorkspaceHUDController()
@@ -150,6 +151,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Re-center the settings window
         if let window = settingsWindow, window.isVisible {
+            window.setFrame(frame, display: true)
+        }
+
+        // Re-center the clear workspace window
+        if let window = clearWorkspaceWindow, window.isVisible {
             window.setFrame(frame, display: true)
         }
     }
@@ -412,10 +418,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        func observeClearWorkspace() {
+            withObservationTracking {
+                _ = store.showingClearWorkspace
+            } onChange: { [weak self] in
+                DispatchQueue.main.async {
+                    self?.handleClearWorkspaceToggle()
+                    observeClearWorkspace()
+                }
+            }
+        }
+
         observeEditor()
         observeCreateModal()
         observeSettings()
         observeRunWorkspace()
+        observeClearWorkspace()
     }
 
     private func handleEditorToggle() {
@@ -458,8 +476,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Show HUD
         hudController.show(state: .launchingApps(current: workspace.apps.first?.name ?? "", index: 0, total: workspace.apps.count))
 
-        // Mark workspace as recently used
+        // Mark workspace as recently used and set as active
         store.touchWorkspace(workspace)
+        store.activeWorkspaceID = workspace.id
 
         // Run workspace asynchronously
         Task { @MainActor in
@@ -477,6 +496,61 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+    }
+
+    private func handleClearWorkspaceToggle() {
+        if store.showingClearWorkspace {
+            popover?.performClose(nil)
+            closePopoverWindow()
+            openClearWorkspaceWindow()
+        } else {
+            closeClearWorkspaceWindow()
+        }
+    }
+
+    func openClearWorkspaceWindow() {
+        closeClearWorkspaceWindow()
+
+        guard let screen = NSScreen.main else { return }
+
+        let clearView = ClearWorkspaceView(
+            onDismiss: { [weak self] in
+                self?.store.showingClearWorkspace = false
+                self?.closeClearWorkspaceWindow()
+            }
+        )
+
+        let hostingView = NSHostingController(rootView: clearView)
+
+        let window = KeyableWindow(
+            contentRect: screen.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hostingView
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.level = .floating
+        window.hasShadow = false
+        window.setFrame(screen.frame, display: true)
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+
+        NSApp.setActivationPolicy(.regular)
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            NSApp.setActivationPolicy(.accessory)
+            window.makeKeyAndOrderFront(nil)
+        }
+
+        clearWorkspaceWindow = window
+    }
+
+    func closeClearWorkspaceWindow() {
+        clearWorkspaceWindow?.orderOut(nil)
+        clearWorkspaceWindow = nil
     }
 
     func openEditorWindow(for workspace: Workspace) {

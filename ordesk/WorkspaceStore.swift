@@ -13,6 +13,8 @@ class WorkspaceStore {
     var workspaceToRun: Workspace?
     var minimizeOthersOnRun = false
     var searchText = ""
+    var activeWorkspaceID: String?
+    var showingClearWorkspace = false
     var preferences = Preferences(
         launchAtLogin: false,
         defaultRestoreBehavior: .reuseExisting,

@@ -60,7 +60,10 @@ struct MenuBarPopover: View {
 
             Spacer()
 
-            SettingsButton()
+            HStack(spacing: 4) {
+                ClearWorkspaceButton()
+                SettingsButton()
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -100,6 +103,7 @@ struct MenuBarPopover: View {
                     WorkspaceRow(
                         workspace: workspace,
                         timeAgo: store.timeAgoString(from: workspace.lastUsed),
+                        isActive: store.activeWorkspaceID == workspace.id,
                         onRun: {
                             store.workspaceToRun = workspace
                         },
@@ -108,6 +112,10 @@ struct MenuBarPopover: View {
                             store.showingEditor = true
                         },
                         onDelete: {
+                            // If deleting the active workspace, clear the active state
+                            if store.activeWorkspaceID == workspace.id {
+                                store.activeWorkspaceID = nil
+                            }
                             withAnimation(.easeInOut(duration: 0.2)) {
                                 store.deleteWorkspace(workspace)
                             }
@@ -174,6 +182,35 @@ struct MenuBarPopover: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(DesignSystem.elevatedSurface.opacity(0.5))
+    }
+}
+
+// MARK: - Clear Workspace Button
+
+struct ClearWorkspaceButton: View {
+    @Environment(WorkspaceStore.self) private var store
+    @State private var isHovered = false
+
+    var body: some View {
+        Button {
+            store.showingClearWorkspace = true
+        } label: {
+            Image(systemName: "xmark.circle")
+                .font(.system(size: 14))
+                .foregroundStyle(isHovered ? DesignSystem.textPrimary : DesignSystem.textSecondary)
+                .frame(width: 28, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(isHovered ? DesignSystem.hoverBackground : Color.clear)
+                )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.1)) {
+                isHovered = hovering
+            }
+        }
+        .help("Clear / organize open apps")
     }
 }
 
