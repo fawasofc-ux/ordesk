@@ -6,6 +6,8 @@ struct WorkspaceEditor: View {
     @State private var editingWorkspace: Workspace
     @State private var detectedDisplays: [DisplayInfo] = []
     @State private var addingAppForDisplay: Int? = nil  // Which display index is showing the add popup
+    @State private var showUnselectedAppsAlert = false
+    @State private var unselectedAppNames: [String] = []
 
     var onDismiss: () -> Void
 
@@ -98,6 +100,25 @@ struct WorkspaceEditor: View {
         .onAppear { detectDisplays() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
             detectDisplays()
+        }
+        .alert("Unselected Apps Detected", isPresented: $showUnselectedAppsAlert) {
+            Button("Minimize & Run", role: .destructive) {
+                store.updateWorkspace(editingWorkspace)
+                store.minimizeOthersOnRun = true
+                store.workspaceToRun = editingWorkspace
+                onDismiss()
+            }
+            Button("Run Without Minimizing") {
+                store.updateWorkspace(editingWorkspace)
+                store.minimizeOthersOnRun = false
+                store.workspaceToRun = editingWorkspace
+                onDismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            let names = unselectedAppNames.prefix(5).joined(separator: ", ")
+            let suffix = unselectedAppNames.count > 5 ? " and \(unselectedAppNames.count - 5) more" : ""
+            Text("The following apps are currently open but not included in this workspace: \(names)\(suffix). Would you like to minimize them for a cleaner workspace?")
         }
     }
 
@@ -333,9 +354,7 @@ struct WorkspaceEditor: View {
 
                 // Run Workspace button
                 RunWorkspaceButton {
-                    store.updateWorkspace(editingWorkspace)
-                    store.workspaceToRun = editingWorkspace
-                    onDismiss()
+                    checkAndRunWorkspace()
                 }
 
                 // Save Layout button
@@ -352,6 +371,39 @@ struct WorkspaceEditor: View {
         .frame(height: 72)
         .overlay(alignment: .top) {
             Divider().opacity(0.3)
+        }
+    }
+
+    // MARK: - Run Workspace (with unselected app check)
+
+    /// Checks for unselected visible apps before running, shows alert if found.
+    private func checkAndRunWorkspace() {
+        store.updateWorkspace(editingWorkspace)
+
+        let workspaceBundleIDs = Set(
+            editingWorkspace.apps.map(\.bundleIdentifier).filter { !$0.isEmpty }
+        )
+        let ordeskBundleID = Bundle.main.bundleIdentifier ?? ""
+
+        // Find apps with visible windows that aren't in this workspace
+        let visibleBundleIDs = WindowDetectionService.bundleIDsWithVisibleWindows()
+        let unselectedIDs = visibleBundleIDs
+            .subtracting(workspaceBundleIDs)
+            .subtracting([ordeskBundleID])
+
+        if unselectedIDs.isEmpty {
+            // No unselected apps — run directly
+            store.minimizeOthersOnRun = false
+            store.workspaceToRun = editingWorkspace
+            onDismiss()
+        } else {
+            // Get app names for the alert message
+            unselectedAppNames = unselectedIDs.compactMap { bundleID in
+                NSWorkspace.shared.runningApplications
+                    .first(where: { $0.bundleIdentifier == bundleID })?
+                    .localizedName
+            }.sorted()
+            showUnselectedAppsAlert = true
         }
     }
 

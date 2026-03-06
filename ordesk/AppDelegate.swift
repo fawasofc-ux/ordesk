@@ -447,7 +447,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleRunWorkspace() {
         guard let workspace = store.workspaceToRun else { return }
+        let minimizeOthers = store.minimizeOthersOnRun
         store.workspaceToRun = nil
+        store.minimizeOthersOnRun = false
 
         // Close any open overlays
         popover?.performClose(nil)
@@ -462,7 +464,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Run workspace asynchronously
         Task { @MainActor in
             do {
-                try await workspaceRunner.run(workspace: workspace) { [weak self] state in
+                try await workspaceRunner.run(workspace: workspace, minimizeOthers: minimizeOthers) { [weak self] state in
                     self?.hudController.update(state: state)
                 }
                 // HUD auto-dismisses via WorkspaceHUDController.update(.completed)

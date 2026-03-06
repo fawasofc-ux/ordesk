@@ -4,7 +4,8 @@ import Foundation
 // MARK: - Workspace Runner
 
 /// Executes a workspace: launches apps, unminimizes them, and positions
-/// their windows at the correct screen ratios based on cardSize/grid layout.
+/// their windows at the correct screen ratios based on displayIndex and
+/// dynamic layout (apps fill the screen adaptively).
 ///
 /// Uses AppleScript + AXUIElement for window management.
 ///
@@ -54,9 +55,10 @@ final class WorkspaceRunner {
     /// Runs a workspace: launches/activates apps and positions their windows.
     /// - Parameters:
     ///   - workspace: The workspace to execute.
+    ///   - minimizeOthers: If true, minimize apps with visible windows that are NOT in the workspace.
     ///   - onStateChange: Callback invoked on each state transition (for HUD updates).
     /// - Throws: `RunnerError` if any step fails.
-    func run(workspace: Workspace, onStateChange: @escaping (RunnerState) -> Void) async throws {
+    func run(workspace: Workspace, minimizeOthers: Bool = false, onStateChange: @escaping (RunnerState) -> Void) async throws {
         self.onStateChange = onStateChange
 
         // Step 0: Verify permissions
@@ -65,11 +67,17 @@ final class WorkspaceRunner {
             throw RunnerError.accessibilityNotGranted
         }
 
+        // Step 0.5: Minimize unselected visible apps if requested
+        if minimizeOthers {
+            minimizeAppsNotInWorkspace(workspace)
+            try await Task.sleep(for: .milliseconds(300))
+        }
+
         // Step 1: Launch / activate all apps
         let apps = workspace.apps
         print("[WorkspaceRunner] Launching \(apps.count) app(s)...")
         for (index, app) in apps.enumerated() {
-            print("[WorkspaceRunner] [\(index+1)/\(apps.count)] \(app.name) -- \(app.bundleIdentifier)")
+            print("[WorkspaceRunner] [\(index+1)/\(apps.count)] \(app.name) -- \(app.bundleIdentifier) (display \(app.displayIndex))")
             transition(to: .launchingApps(current: app.name, index: index, total: apps.count))
             try await launchAndActivateApp(app)
 
@@ -82,12 +90,45 @@ final class WorkspaceRunner {
         // Step 2: Wait for all windows to settle
         try await Task.sleep(for: .milliseconds(500))
 
-        // Step 3: Position all windows based on cardSize layout
+        // Step 3: Position all windows based on displayIndex + dynamic layout
         transition(to: .positioningWindows)
         await positionAllWindows(apps: apps)
 
         // Done
         transition(to: .completed)
+    }
+
+    // MARK: - Minimize Unselected Apps
+
+    /// Minimizes all visible windows of apps NOT in the workspace.
+    private func minimizeAppsNotInWorkspace(_ workspace: Workspace) {
+        let workspaceBundleIDs = Set(workspace.apps.map(\.bundleIdentifier).filter { !$0.isEmpty })
+        let ordeskBundleID = Bundle.main.bundleIdentifier ?? ""
+
+        let visibleBundleIDs = WindowDetectionService.bundleIDsWithVisibleWindows()
+        let toMinimize = visibleBundleIDs
+            .subtracting(workspaceBundleIDs)
+            .subtracting([ordeskBundleID])
+
+        print("[WorkspaceRunner] Minimizing \(toMinimize.count) unselected app(s)...")
+
+        for bundleID in toMinimize {
+            guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+                $0.bundleIdentifier == bundleID
+            }) else { continue }
+
+            // Minimize all windows via AXUIElement
+            let appElement = AXUIElementCreateApplication(runningApp.processIdentifier)
+            var windowsRef: CFTypeRef?
+            let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef)
+
+            if result == .success, let windows = windowsRef as? [AXUIElement] {
+                for window in windows {
+                    AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, true as CFTypeRef)
+                }
+                print("[WorkspaceRunner] Minimized windows for \(runningApp.localizedName ?? bundleID)")
+            }
+        }
     }
 
     // MARK: - Launch & Activate Apps
@@ -208,29 +249,45 @@ final class WorkspaceRunner {
         }
     }
 
-    // MARK: - Window Positioning
+    // MARK: - Window Positioning (Multi-Display Aware)
 
-    /// Positions all app windows based on their cardSize and order in the workspace.
-    /// Uses the grid layout logic from the editor to calculate screen ratios.
+    /// Positions all app windows grouped by displayIndex on the correct screen.
+    /// Each display gets a dynamic layout based on how many apps are assigned to it.
     private func positionAllWindows(apps: [AppInstance]) async {
-        guard let screen = NSScreen.main else { return }
+        let screens = NSScreen.screens
+        guard let mainScreen = screens.first else { return }
+        let mainScreenHeight = mainScreen.frame.height
 
-        // Convert NSScreen visibleFrame (Cocoa: origin bottom-left) to
-        // AX screen coordinates (origin top-left, y goes down)
-        let screenFrame = screen.frame
+        // Group apps by displayIndex
+        var appsByDisplay: [Int: [AppInstance]] = [:]
+        for app in apps {
+            appsByDisplay[app.displayIndex, default: []].append(app)
+        }
+
+        // Position apps on each display
+        for (displayIndex, displayApps) in appsByDisplay.sorted(by: { $0.key < $1.key }) {
+            // Get the screen for this display index (fall back to main if unavailable)
+            let screen = displayIndex < screens.count ? screens[displayIndex] : mainScreen
+            let axRect = cocoaVisibleFrameToAX(screen: screen, mainScreenHeight: mainScreenHeight)
+
+            print("[WorkspaceRunner] Display \(displayIndex) (\(screen.localizedName)): \(displayApps.count) app(s) → AX rect \(axRect)")
+
+            await positionAppsOnScreen(displayApps, in: axRect)
+        }
+    }
+
+    /// Converts a screen's visibleFrame from Cocoa coordinates (origin bottom-left, Y up)
+    /// to AX coordinates (origin top-left of main screen, Y down).
+    private func cocoaVisibleFrameToAX(screen: NSScreen, mainScreenHeight: CGFloat) -> CGRect {
         let visibleFrame = screen.visibleFrame
+        let axX = visibleFrame.origin.x
+        let axY = mainScreenHeight - visibleFrame.origin.y - visibleFrame.height
+        return CGRect(x: axX, y: axY, width: visibleFrame.width, height: visibleFrame.height)
+    }
 
-        // In AX coordinates: top of visible area = distance from screen top to visible top
-        let menuBarHeight = screenFrame.maxY - visibleFrame.maxY
-        let axRect = CGRect(
-            x: visibleFrame.origin.x,
-            y: menuBarHeight,
-            width: visibleFrame.width,
-            height: visibleFrame.height
-        )
-
-        // Calculate window frames based on card sizes (in AX coordinates)
-        let frames = calculateWindowFrames(apps: apps, in: axRect)
+    /// Positions a group of apps on a single screen using dynamic layout.
+    private func positionAppsOnScreen(_ apps: [AppInstance], in axRect: CGRect) async {
+        let frames = dynamicLayoutFrames(count: apps.count, in: axRect)
 
         for (index, app) in apps.enumerated() {
             guard index < frames.count else { continue }
@@ -238,7 +295,6 @@ final class WorkspaceRunner {
 
             print("[WorkspaceRunner] Positioning \(app.name) at \(targetFrame)")
 
-            // Find the running app
             guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
                 $0.bundleIdentifier == app.bundleIdentifier
             }) else {
@@ -246,108 +302,115 @@ final class WorkspaceRunner {
                 continue
             }
 
-            // Use AXUIElement to move and resize
             setWindowFrame(for: runningApp, frame: targetFrame)
 
-            // Small delay between positioning
             if index < apps.count - 1 {
                 try? await Task.sleep(for: .milliseconds(100))
             }
         }
     }
 
-    /// Calculates target frames for each app based on their cardSize.
+    /// Dynamic layout: apps automatically fill the available space.
     ///
-    /// Layout logic:
-    /// - Uses the same grid system as the WorkspaceEditor
-    /// - `small` = 1 column, 1 row unit
-    /// - `medium` = 2 columns, 1 row unit
-    /// - `large` = 2 columns, 2 row units
-    ///
-    /// The algorithm walks through apps row by row, placing them in a grid,
-    /// then maps grid cells to actual screen coordinates.
-    private func calculateWindowFrames(apps: [AppInstance], in rect: CGRect) -> [CGRect] {
-        let gridConfig = GridConfiguration.configuration(for: apps.count)
-        let totalColumns = gridConfig.columns
+    /// - 1 app  → full screen
+    /// - 2 apps → side by side (left | right)
+    /// - 3 apps → 2 on top, 1 full-width on bottom
+    /// - 4 apps → 2×2 grid
+    private func dynamicLayoutFrames(count: Int, in rect: CGRect) -> [CGRect] {
+        let padding: CGFloat = 4
 
-        // Build a placement map: each app occupies cells in a virtual grid
-        struct Placement {
-            let col: Int
-            let row: Int
-            let colSpan: Int
-            let rowSpan: Int
-        }
+        switch count {
+        case 0:
+            return []
 
-        var placements: [Placement] = []
-        var currentCol = 0
-        var currentRow = 0
-        var maxRow = 0
+        case 1:
+            // Full screen
+            return [
+                CGRect(
+                    x: rect.minX + padding,
+                    y: rect.minY + padding,
+                    width: rect.width - padding * 2,
+                    height: rect.height - padding * 2
+                )
+            ]
 
-        // Grid occupancy tracker
-        var occupied: Set<String> = [] // "col,row" keys
-        func isOccupied(_ c: Int, _ r: Int) -> Bool { occupied.contains("\(c),\(r)") }
-        func occupy(_ c: Int, _ r: Int) { occupied.insert("\(c),\(r)") }
+        case 2:
+            // Side by side
+            let halfW = rect.width / 2
+            return [
+                CGRect(
+                    x: rect.minX + padding,
+                    y: rect.minY + padding,
+                    width: halfW - padding * 2,
+                    height: rect.height - padding * 2
+                ),
+                CGRect(
+                    x: rect.minX + halfW + padding,
+                    y: rect.minY + padding,
+                    width: halfW - padding * 2,
+                    height: rect.height - padding * 2
+                )
+            ]
 
-        for app in apps {
-            let colSpan = app.cardSize.gridColumns
-            let rowSpan = app.cardSize.gridRows
+        case 3:
+            // 2 on top row, 1 full-width on bottom row
+            let halfW = rect.width / 2
+            let halfH = rect.height / 2
+            return [
+                CGRect(
+                    x: rect.minX + padding,
+                    y: rect.minY + padding,
+                    width: halfW - padding * 2,
+                    height: halfH - padding * 2
+                ),
+                CGRect(
+                    x: rect.minX + halfW + padding,
+                    y: rect.minY + padding,
+                    width: halfW - padding * 2,
+                    height: halfH - padding * 2
+                ),
+                CGRect(
+                    x: rect.minX + padding,
+                    y: rect.minY + halfH + padding,
+                    width: rect.width - padding * 2,
+                    height: halfH - padding * 2
+                )
+            ]
 
-            // Find next available position
-            var placed = false
-            for r in currentRow...currentRow + 10 { // safety limit
-                for c in 0...(totalColumns - colSpan) {
-                    // Check if all cells for this placement are free
-                    var canPlace = true
-                    for dc in 0..<colSpan {
-                        for dr in 0..<rowSpan {
-                            if isOccupied(c + dc, r + dr) {
-                                canPlace = false
-                                break
-                            }
-                        }
-                        if !canPlace { break }
-                    }
+        case 4:
+            // 2×2 grid
+            let halfW = rect.width / 2
+            let halfH = rect.height / 2
+            return [
+                CGRect(x: rect.minX + padding, y: rect.minY + padding,
+                        width: halfW - padding * 2, height: halfH - padding * 2),
+                CGRect(x: rect.minX + halfW + padding, y: rect.minY + padding,
+                        width: halfW - padding * 2, height: halfH - padding * 2),
+                CGRect(x: rect.minX + padding, y: rect.minY + halfH + padding,
+                        width: halfW - padding * 2, height: halfH - padding * 2),
+                CGRect(x: rect.minX + halfW + padding, y: rect.minY + halfH + padding,
+                        width: halfW - padding * 2, height: halfH - padding * 2)
+            ]
 
-                    if canPlace {
-                        // Place the app
-                        for dc in 0..<colSpan {
-                            for dr in 0..<rowSpan {
-                                occupy(c + dc, r + dr)
-                            }
-                        }
-                        placements.append(Placement(col: c, row: r, colSpan: colSpan, rowSpan: rowSpan))
-                        maxRow = max(maxRow, r + rowSpan)
-                        placed = true
-                        break
-                    }
-                }
-                if placed { break }
+        default:
+            // Fallback: 2-column grid for > 4 apps
+            let cols = 2
+            let rows = Int(ceil(Double(count) / Double(cols)))
+            let cellW = rect.width / CGFloat(cols)
+            let cellH = rect.height / CGFloat(rows)
+            var frames: [CGRect] = []
+            for i in 0..<count {
+                let col = i % cols
+                let row = i / cols
+                frames.append(CGRect(
+                    x: rect.minX + CGFloat(col) * cellW + padding,
+                    y: rect.minY + CGFloat(row) * cellH + padding,
+                    width: cellW - padding * 2,
+                    height: cellH - padding * 2
+                ))
             }
-
-            if !placed {
-                // Fallback: place at origin
-                placements.append(Placement(col: 0, row: maxRow, colSpan: min(colSpan, totalColumns), rowSpan: rowSpan))
-                maxRow += rowSpan
-            }
+            return frames
         }
-
-        // Convert grid placements to AX screen coordinates (origin top-left, Y goes down)
-        let totalRows = max(maxRow, 1)
-        let cellWidth = rect.width / CGFloat(totalColumns)
-        let cellHeight = rect.height / CGFloat(totalRows)
-        let padding: CGFloat = 4 // small gap between windows
-
-        var frames: [CGRect] = []
-        for placement in placements {
-            let x = rect.minX + CGFloat(placement.col) * cellWidth + padding
-            let y = rect.minY + CGFloat(placement.row) * cellHeight + padding
-            let w = CGFloat(placement.colSpan) * cellWidth - padding * 2
-            let h = CGFloat(placement.rowSpan) * cellHeight - padding * 2
-
-            frames.append(CGRect(x: x, y: y, width: max(w, 200), height: max(h, 150)))
-        }
-
-        return frames
     }
 
     /// Sets the position and size of the frontmost window of a running application
