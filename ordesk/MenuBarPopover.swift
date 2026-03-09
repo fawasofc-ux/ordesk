@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct MenuBarPopover: View {
     @Environment(WorkspaceStore.self) private var store
@@ -15,6 +16,11 @@ struct MenuBarPopover: View {
 
             // MARK: - Search
             searchSection
+
+            // MARK: - Welcome Card (only when no workspaces at all)
+            if store.workspaces.isEmpty && store.searchText.isEmpty {
+                welcomeCard
+            }
 
             // MARK: - Workspace List or Empty State
             if store.filteredWorkspaces.isEmpty {
@@ -132,6 +138,62 @@ struct MenuBarPopover: View {
         .frame(maxHeight: 420)
     }
 
+    // MARK: - Welcome Card
+
+    private var welcomeCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 32, height: 32)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(
+                                LinearGradient(
+                                    colors: [DesignSystem.primaryBlue, DesignSystem.primaryBlueHover],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    )
+
+                Text("Welcome to Workspace Manager")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(DesignSystem.textPrimary)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                welcomeFeatureRow(icon: "square.stack.3d.up", text: "Save your current apps and windows as a workspace")
+                welcomeFeatureRow(icon: "bolt.fill", text: "Switch between workspaces instantly to stay focused")
+                welcomeFeatureRow(icon: "gearshape", text: "Customize behavior in Settings")
+            }
+            .padding(.leading, 4)
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(DesignSystem.primaryBlue.opacity(0.06))
+                .stroke(DesignSystem.primaryBlue.opacity(0.12), lineWidth: 0.5)
+        )
+        .padding(.horizontal, 12)
+        .padding(.top, 6)
+    }
+
+    private func welcomeFeatureRow(icon: String, text: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 11))
+                .foregroundStyle(DesignSystem.primaryBlue)
+                .frame(width: 16)
+
+            Text(text)
+                .font(.system(size: 11))
+                .foregroundStyle(DesignSystem.textSecondary)
+                .lineLimit(2)
+        }
+    }
+
     // MARK: - Empty State
 
     private var emptyState: some View {
@@ -142,20 +204,50 @@ struct MenuBarPopover: View {
                 .font(.system(size: 36))
                 .foregroundStyle(.quaternary)
 
-            VStack(spacing: 4) {
+            VStack(spacing: 6) {
                 Text(store.searchText.isEmpty ? "No workspaces yet" : "No results")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(DesignSystem.textSecondary)
 
-                Text(store.searchText.isEmpty ? "Create your first workspace" : "Try a different search term")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.tertiary)
+                if store.searchText.isEmpty {
+                    Button {
+                        createEmptyWorkspaceAndOpenEditor()
+                    } label: {
+                        Text("Create your first workspace")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(DesignSystem.primaryBlue)
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        if hovering {
+                            NSCursor.pointingHand.push()
+                        } else {
+                            NSCursor.pop()
+                        }
+                    }
+                } else {
+                    Text("Try a different search term")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.tertiary)
+                }
             }
 
             Spacer()
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 200)
+        .frame(height: store.workspaces.isEmpty ? 140 : 200)
+    }
+
+    // MARK: - Create Empty Workspace
+
+    private func createEmptyWorkspaceAndOpenEditor() {
+        let emptyWorkspace = Workspace(
+            name: "New Workspace",
+            apps: [],
+            displayMode: WindowDetectionService.autoDetectedDisplayMode()
+        )
+        store.selectedWorkspace = emptyWorkspace
+        store.showingEditor = true
     }
 
     // MARK: - Footer

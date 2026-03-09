@@ -67,8 +67,10 @@ class WorkspaceStore {
     func updateWorkspace(_ workspace: Workspace) {
         if let index = workspaces.firstIndex(where: { $0.id == workspace.id }) {
             workspaces[index] = workspace
-            saveWorkspaces()
+        } else {
+            workspaces.append(workspace)
         }
+        saveWorkspaces()
     }
 
     func deleteWorkspace(_ workspace: Workspace) {
