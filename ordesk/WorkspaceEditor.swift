@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 struct WorkspaceEditor: View {
     @Environment(WorkspaceStore.self) private var store
@@ -8,6 +9,7 @@ struct WorkspaceEditor: View {
     @State private var addingAppForDisplay: Int? = nil  // Which display index is showing the add popup
     @State private var showUnselectedAppsAlert = false
     @State private var unselectedAppNames: [String] = []
+    @State private var draggingAppID: String?
 
     var onDismiss: () -> Void
 
@@ -322,21 +324,39 @@ struct WorkspaceEditor: View {
         ]
 
         return LazyVGrid(columns: columns, spacing: 12) {
-            // Filled app cards
+            // Filled app cards (draggable + drop targets)
             ForEach(apps) { app in
                 DraggableAppCard(
                     app: app,
                     onRemove: { removeApp(app) }
                 )
                 .frame(height: 140)
+                .opacity(draggingAppID == app.id ? 0.4 : 1.0)
+                .onDrag {
+                    draggingAppID = app.id
+                    return NSItemProvider(object: app.id as NSString)
+                }
+                .onDrop(of: [.text], delegate: AppReorderDropDelegate(
+                    targetAppID: app.id,
+                    targetDisplayIndex: displayIndex,
+                    draggingAppID: $draggingAppID,
+                    workspace: $editingWorkspace,
+                    maxAppsPerDisplay: maxAppsPerDisplay
+                ))
             }
 
-            // Empty slot add buttons
+            // Empty slot add buttons (drop targets only, not draggable)
             ForEach(0..<emptySlots, id: \.self) { _ in
                 AddAppSlot {
                     addingAppForDisplay = displayIndex
                 }
                 .frame(height: 140)
+                .onDrop(of: [.text], delegate: EmptySlotDropDelegate(
+                    targetDisplayIndex: displayIndex,
+                    draggingAppID: $draggingAppID,
+                    workspace: $editingWorkspace,
+                    maxAppsPerDisplay: maxAppsPerDisplay
+                ))
             }
         }
     }
@@ -412,6 +432,95 @@ struct WorkspaceEditor: View {
     private func saveAndDismiss() {
         store.updateWorkspace(editingWorkspace)
         onDismiss()
+    }
+}
+
+// MARK: - Drag & Drop Delegates
+
+/// Handles dropping an app card onto another app card — reorders within or across displays.
+struct AppReorderDropDelegate: DropDelegate {
+    let targetAppID: String
+    let targetDisplayIndex: Int
+    @Binding var draggingAppID: String?
+    @Binding var workspace: Workspace
+    let maxAppsPerDisplay: Int
+
+    func dropEntered(info: DropInfo) {
+        guard let draggedID = draggingAppID, draggedID != targetAppID else { return }
+        guard let fromIndex = workspace.apps.firstIndex(where: { $0.id == draggedID }),
+              let toIndex = workspace.apps.firstIndex(where: { $0.id == targetAppID })
+        else { return }
+
+        let draggedDisplayIndex = workspace.apps[fromIndex].displayIndex
+        let isCrossDisplay = draggedDisplayIndex != targetDisplayIndex
+
+        // For cross-display moves, check if target display has room
+        if isCrossDisplay {
+            let targetCount = workspace.apps.filter { $0.displayIndex == targetDisplayIndex }.count
+            guard targetCount < maxAppsPerDisplay else { return }
+        }
+
+        withAnimation(.easeInOut(duration: 0.2)) {
+            workspace.apps[fromIndex].displayIndex = targetDisplayIndex
+            workspace.apps.move(
+                fromOffsets: IndexSet(integer: fromIndex),
+                toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex
+            )
+        }
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggingAppID = nil
+        return true
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+}
+
+/// Handles dropping an app card onto an empty slot — moves the app to that display.
+struct EmptySlotDropDelegate: DropDelegate {
+    let targetDisplayIndex: Int
+    @Binding var draggingAppID: String?
+    @Binding var workspace: Workspace
+    let maxAppsPerDisplay: Int
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard let draggedID = draggingAppID,
+              let appIndex = workspace.apps.firstIndex(where: { $0.id == draggedID })
+        else {
+            draggingAppID = nil
+            return false
+        }
+
+        let isAlreadyOnDisplay = workspace.apps[appIndex].displayIndex == targetDisplayIndex
+        if !isAlreadyOnDisplay {
+            let currentCount = workspace.apps.filter { $0.displayIndex == targetDisplayIndex }.count
+            guard currentCount < maxAppsPerDisplay else {
+                draggingAppID = nil
+                return false
+            }
+        }
+
+        withAnimation(.easeInOut(duration: 0.2)) {
+            workspace.apps[appIndex].displayIndex = targetDisplayIndex
+
+            // Move to end of display's section in the array
+            let app = workspace.apps.remove(at: appIndex)
+            if let lastIndex = workspace.apps.lastIndex(where: { $0.displayIndex == targetDisplayIndex }) {
+                workspace.apps.insert(app, at: lastIndex + 1)
+            } else {
+                workspace.apps.append(app)
+            }
+        }
+
+        draggingAppID = nil
+        return true
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
     }
 }
 
