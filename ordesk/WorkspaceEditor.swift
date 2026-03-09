@@ -249,8 +249,28 @@ struct WorkspaceEditor: View {
                 singleDisplaySection
                     .padding(.horizontal, 24)
                     .padding(.vertical, 16)
+            } else if displayCount == 2 {
+                // Dual display: side-by-side grids with swap button
+                HStack(alignment: .top, spacing: 0) {
+                    multiDisplaySection(
+                        displayIndex: 0,
+                        display: detectedDisplays.indices.contains(0) ? detectedDisplays[0] : nil
+                    )
+
+                    // Swap button between the two displays
+                    swapButton
+                        .padding(.horizontal, 8)
+                        .padding(.top, 60)
+
+                    multiDisplaySection(
+                        displayIndex: 1,
+                        display: detectedDisplays.indices.contains(1) ? detectedDisplays[1] : nil
+                    )
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 16)
             } else {
-                // Multi-display: side-by-side grids
+                // 3 displays: side-by-side grids (no swap)
                 HStack(alignment: .top, spacing: 24) {
                     ForEach(0..<displayCount, id: \.self) { displayIndex in
                         let display = displayIndex < detectedDisplays.count ? detectedDisplays[displayIndex] : nil
@@ -261,6 +281,35 @@ struct WorkspaceEditor: View {
                 .padding(.vertical, 16)
             }
         }
+    }
+
+    // MARK: - Swap Button (dual display only)
+
+    private var swapButton: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                for i in editingWorkspace.apps.indices {
+                    let current = editingWorkspace.apps[i].displayIndex
+                    if current == 0 {
+                        editingWorkspace.apps[i].displayIndex = 1
+                    } else if current == 1 {
+                        editingWorkspace.apps[i].displayIndex = 0
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "arrow.left.arrow.right")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(DesignSystem.primaryBlue)
+                .frame(width: 32, height: 32)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(DesignSystem.primaryBlue.opacity(0.1))
+                        .stroke(DesignSystem.primaryBlue.opacity(0.25), lineWidth: 0.5)
+                )
+        }
+        .buttonStyle(.plain)
+        .help("Swap apps between displays")
     }
 
     // MARK: - Single Display Section
