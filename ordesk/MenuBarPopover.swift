@@ -3,6 +3,8 @@ import AppKit
 
 struct MenuBarPopover: View {
     @Environment(WorkspaceStore.self) private var store
+    @State private var showActiveDeleteAlert = false
+    @State private var workspaceToDelete: Workspace?
 
     var body: some View {
         @Bindable var store = store
@@ -37,6 +39,33 @@ struct MenuBarPopover: View {
         }
         .frame(width: DesignSystem.popoverWidth)
         .background(DesignSystem.surfaceBackground)
+        .alert("Active Workspace", isPresented: $showActiveDeleteAlert) {
+            Button("Close Windows & Delete", role: .destructive) {
+                if let ws = workspaceToDelete {
+                    closeWorkspaceApps(ws)
+                    store.activeWorkspaceID = nil
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        store.deleteWorkspace(ws)
+                    }
+                    workspaceToDelete = nil
+                }
+            }
+            Button("Minimize & Delete") {
+                if let ws = workspaceToDelete {
+                    minimizeWorkspaceApps(ws)
+                    store.activeWorkspaceID = nil
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        store.deleteWorkspace(ws)
+                    }
+                    workspaceToDelete = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                workspaceToDelete = nil
+            }
+        } message: {
+            Text("This workspace is currently running. Would you like to close or minimize all its active windows before deleting?")
+        }
     }
 
     // MARK: - Header
@@ -118,12 +147,14 @@ struct MenuBarPopover: View {
                             store.showingEditor = true
                         },
                         onDelete: {
-                            // If deleting the active workspace, clear the active state
                             if store.activeWorkspaceID == workspace.id {
-                                store.activeWorkspaceID = nil
-                            }
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                store.deleteWorkspace(workspace)
+                                // Active workspace — show alert with close/minimize options
+                                workspaceToDelete = workspace
+                                showActiveDeleteAlert = true
+                            } else {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    store.deleteWorkspace(workspace)
+                                }
                             }
                         }
                     )
@@ -236,6 +267,39 @@ struct MenuBarPopover: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: store.workspaces.isEmpty ? 140 : 200)
+    }
+
+    // MARK: - Active Workspace Cleanup
+
+    private func closeWorkspaceApps(_ workspace: Workspace) {
+        for app in workspace.apps where !app.bundleIdentifier.isEmpty {
+            if let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+                $0.bundleIdentifier == app.bundleIdentifier
+            }) {
+                runningApp.forceTerminate()
+            }
+        }
+    }
+
+    private func minimizeWorkspaceApps(_ workspace: Workspace) {
+        for app in workspace.apps where !app.bundleIdentifier.isEmpty {
+            if let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+                $0.bundleIdentifier == app.bundleIdentifier
+            }) {
+                let appElement = AXUIElementCreateApplication(runningApp.processIdentifier)
+                var windowsRef: CFTypeRef?
+                let result = AXUIElementCopyAttributeValue(
+                    appElement, kAXWindowsAttribute as CFString, &windowsRef
+                )
+                if result == .success, let windows = windowsRef as? [AXUIElement] {
+                    for window in windows {
+                        AXUIElementSetAttributeValue(
+                            window, kAXMinimizedAttribute as CFString, true as CFTypeRef
+                        )
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Create Empty Workspace
