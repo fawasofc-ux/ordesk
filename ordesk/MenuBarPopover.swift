@@ -317,24 +317,48 @@ struct MenuBarPopover: View {
     // MARK: - Footer
 
     private var footerSection: some View {
-        Button {
-            store.showingCreateModal = true
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "plus")
-                    .font(.system(size: 12, weight: .semibold))
-                Text("Save Current Workspace")
-                    .font(.system(size: 13, weight: .medium))
+        HStack(spacing: 8) {
+            // Create New Workspace (empty editor)
+            Button {
+                createEmptyWorkspaceAndOpenEditor()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "doc.badge.plus")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("Create New")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .foregroundStyle(DesignSystem.primaryBlue)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 9)
+                .background(
+                    RoundedRectangle(cornerRadius: DesignSystem.buttonRadius)
+                        .fill(DesignSystem.primaryBlue.opacity(0.1))
+                        .stroke(DesignSystem.primaryBlue.opacity(0.25), lineWidth: 0.5)
+                )
             }
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 9)
-            .background(
-                RoundedRectangle(cornerRadius: DesignSystem.buttonRadius)
-                    .fill(DesignSystem.primaryBlue)
-            )
+            .buttonStyle(.plain)
+
+            // Save Current Workspace
+            Button {
+                store.showingCreateModal = true
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "square.and.arrow.down")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("Save Current")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 9)
+                .background(
+                    RoundedRectangle(cornerRadius: DesignSystem.buttonRadius)
+                        .fill(DesignSystem.primaryBlue)
+                )
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(DesignSystem.elevatedSurface.opacity(0.5))
