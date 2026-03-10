@@ -108,6 +108,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var screenChangeObserver: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Move to Applications if needed
+        promptMoveToApplicationsIfNeeded()
+
         setupStatusItem()
         setupPopover()
         setupEventMonitor()
@@ -115,8 +118,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupScreenChangeMonitor()
         observeStore()
 
-        // Hide dock icon — menu bar only app
-        NSApp.setActivationPolicy(.accessory)
+        // Auto-open popover on launch
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.togglePopoverSmart()
+        }
 
         // Show shortcut hint on first launch
         showLaunchHintIfNeeded()
@@ -310,6 +315,65 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.popoverWindow = nil
             }
         }
+    }
+
+    // MARK: - Move to Applications
+
+    /// Prompts the user to move the app to /Applications if it's running from elsewhere.
+    private func promptMoveToApplicationsIfNeeded() {
+        let appPath = Bundle.main.bundlePath
+        let applicationsPath = "/Applications"
+
+        // Already in /Applications — nothing to do
+        if appPath.hasPrefix(applicationsPath) { return }
+
+        // Don't prompt during Xcode debug builds
+        #if DEBUG
+        return
+        #else
+
+        let key = "hasDeclinedMoveToApplications"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+
+        let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Ordesk"
+        let destinationPath = "\(applicationsPath)/\(appName).app"
+
+        let alert = NSAlert()
+        alert.messageText = "Move to Applications?"
+        alert.informativeText = "\(appName) works best when installed in the Applications folder. Would you like to move it there now?"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Move to Applications")
+        alert.addButton(withTitle: "Not Now")
+
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            do {
+                // Remove existing copy if present
+                let fm = FileManager.default
+                if fm.fileExists(atPath: destinationPath) {
+                    try fm.removeItem(atPath: destinationPath)
+                }
+                try fm.copyItem(atPath: appPath, toPath: destinationPath)
+
+                // Relaunch from Applications
+                let task = Process()
+                task.launchPath = "/usr/bin/open"
+                task.arguments = ["-n", destinationPath]
+                task.launch()
+
+                // Quit this instance
+                NSApp.terminate(nil)
+            } catch {
+                let errorAlert = NSAlert()
+                errorAlert.messageText = "Could not move \(appName)"
+                errorAlert.informativeText = "Please move the app to Applications manually. Error: \(error.localizedDescription)"
+                errorAlert.alertStyle = .warning
+                errorAlert.runModal()
+            }
+        } else {
+            UserDefaults.standard.set(true, forKey: key)
+        }
+        #endif
     }
 
     // MARK: - Launch Hint
