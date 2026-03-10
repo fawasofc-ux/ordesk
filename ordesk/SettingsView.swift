@@ -11,7 +11,7 @@ struct SettingsView: View {
     @State private var accessibilityGranted = false
 
     enum SettingsTab: String, CaseIterable {
-        case general, shortcuts, advanced
+        case general, shortcuts, advanced, about
     }
 
     var body: some View {
@@ -65,6 +65,7 @@ struct SettingsView: View {
             tabButton(.general, icon: "slider.horizontal.3", label: "General")
             tabButton(.shortcuts, icon: "keyboard", label: "Shortcuts")
             tabButton(.advanced, icon: "square.3.layers.3d", label: "Advanced")
+            tabButton(.about, icon: "questionmark.circle", label: "About")
             Spacer()
 
             // App info
@@ -116,7 +117,7 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                Text(activeTab == .general ? "General" : activeTab == .shortcuts ? "Keyboard Shortcuts" : "Advanced")
+                Text(activeTab == .general ? "General" : activeTab == .shortcuts ? "Keyboard Shortcuts" : activeTab == .advanced ? "Advanced" : "About Ordesk")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(DesignSystem.textPrimary)
                 Spacer()
@@ -148,6 +149,8 @@ struct SettingsView: View {
                         shortcutsTab
                     case .advanced:
                         advancedTab
+                    case .about:
+                        aboutTab
                     }
                 }
                 .padding(24)
@@ -490,6 +493,129 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(DesignSystem.textSecondary)
             }
+        }
+    }
+    
+    // MARK: - About Tab
+
+    private var aboutTab: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // App identity
+            HStack(spacing: 14) {
+                Image("64")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 56, height: 56)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Ordesk")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(DesignSystem.textPrimary)
+
+                    Text("Organize the workspaces, save them, reuse with ease")
+                        .font(.system(size: 11))
+                        .foregroundStyle(DesignSystem.textSecondary)
+                        .lineLimit(2)
+
+                    Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0") (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"))")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.bottom, 16)
+
+            Divider().opacity(0.3).padding(.vertical, 8)
+
+            // About description
+            VStack(alignment: .leading, spacing: 10) {
+                Text("About")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(DesignSystem.textPrimary)
+
+                Text("Ordesk is a lightweight macOS menu bar app designed to streamline your workflow. It lets you capture your current desktop setup \u{2014} including open apps and their positions across multiple displays \u{2014} and save it as a reusable workspace. Switch between workspaces instantly with a single click or a global keyboard shortcut.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(DesignSystem.textSecondary)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text("Whether you\u{2019}re a developer juggling coding and design tools, a freelancer switching between client projects, or anyone who wants a cleaner desktop \u{2014} Ordesk handles the heavy lifting. It automatically detects connected displays, positions windows using smart tiling layouts, and manages app states so you can focus on what matters.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(DesignSystem.textSecondary)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.bottom, 8)
+
+            Divider().opacity(0.3).padding(.vertical, 8)
+
+            // Developer section
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Developer")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(DesignSystem.textPrimary)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    // Developer identity
+                    HStack(spacing: 12) {
+                        ZStack {
+                            Circle()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [DesignSystem.primaryBlue, DesignSystem.primaryBlueHover],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .frame(width: 36, height: 36)
+
+                            Text("MF")
+                                .font(.system(size: 13, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white)
+                        }
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Mohamed Fawaz Faiz")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(DesignSystem.textPrimary)
+
+                            Text("Senior iOS Developer")
+                                .font(.system(size: 11))
+                                .foregroundStyle(DesignSystem.textSecondary)
+                        }
+                    }
+
+                    // Location
+                    VStack(spacing: 6) {
+                        developerInfoRow(icon: "mappin.circle.fill", text: "From Sri Lanka, Living in United Arab Emirates")
+                        developerInfoRow(icon: "phone.circle.fill", text: "+971 52 394 2374")
+                        developerInfoRow(icon: "envelope.circle.fill", text: "fawasofc@gmail.com")
+                    }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(NSColor.controlBackgroundColor))
+                        .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
+                )
+            }
+        }
+    }
+
+    private func developerInfoRow(icon: String, text: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 12))
+                .foregroundStyle(DesignSystem.primaryBlue)
+                .frame(width: 16)
+            Spacer()
+            Text(text)
+                .font(.system(size: 11))
+                .foregroundStyle(DesignSystem.textSecondary)
+                .textSelection(.enabled)
+                .multilineTextAlignment(.leading)
         }
     }
 }
