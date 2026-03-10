@@ -82,20 +82,11 @@ struct MenuBarPopover: View {
     private var headerSection: some View {
         HStack {
             HStack(spacing: 8) {
-                Image(systemName: "square.grid.2x2")
+                Image("32")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 24, height: 24)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(
-                                LinearGradient(
-                                    colors: [DesignSystem.primaryBlue, DesignSystem.primaryBlueHover],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
 
                 Text("Ordesk Workspaces")
                     .font(.system(size: 14, weight: .semibold))

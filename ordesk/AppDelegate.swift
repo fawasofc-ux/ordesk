@@ -164,8 +164,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: "Ordesk")
-            button.image?.size = NSSize(width: 16, height: 16)
+            if let icon = NSImage(named: "MenuBarIcon") {
+                icon.size = NSSize(width: 18, height: 18)
+                button.image = icon
+            }
             button.action = #selector(togglePopover)
             button.target = self
         }
