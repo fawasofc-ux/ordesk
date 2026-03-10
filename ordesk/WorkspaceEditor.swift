@@ -10,6 +10,7 @@ struct WorkspaceEditor: View {
     @State private var showUnselectedAppsAlert = false
     @State private var unselectedAppNames: [String] = []
     @State private var draggingAppID: String?
+    @State private var isEditingName = false
 
     var onDismiss: () -> Void
 
@@ -168,9 +169,48 @@ struct WorkspaceEditor: View {
     private var editorHeader: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(editingWorkspace.name)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(DesignSystem.textPrimary)
+                HStack(spacing: 6) {
+                    if isEditingName {
+                        TextField("Workspace name", text: $editingWorkspace.name)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(DesignSystem.textPrimary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(DesignSystem.elevatedSurface)
+                                    .stroke(DesignSystem.primaryBlue.opacity(0.4), lineWidth: 1)
+                            )
+                            .frame(maxWidth: 260)
+                            .onSubmit {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    isEditingName = false
+                                }
+                            }
+                    } else {
+                        Text(editingWorkspace.name)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(DesignSystem.textPrimary)
+
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                isEditingName = true
+                            }
+                        } label: {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(DesignSystem.textSecondary)
+                                .frame(width: 24, height: 24)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(DesignSystem.hoverBackground)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .help("Rename workspace")
+                    }
+                }
 
                 Text("Arrange your workspace layout")
                     .font(.system(size: 12))
