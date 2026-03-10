@@ -610,12 +610,11 @@ struct SettingsView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(DesignSystem.primaryBlue)
                 .frame(width: 16)
-            Spacer()
             Text(text)
                 .font(.system(size: 11))
                 .foregroundStyle(DesignSystem.textSecondary)
                 .textSelection(.enabled)
-                .multilineTextAlignment(.leading)
+            Spacer()
         }
     }
 }
