@@ -178,44 +178,6 @@ struct Preferences: Codable {
     var launchAtLogin: Bool
     var defaultRestoreBehavior: RestoreBehavior
     var quickSwitchShortcut: String
-    var showPopoverOnLaunch: Bool
-    var minimizeOthersOnRun: Bool
-    var windowPadding: Double
-    var appLaunchDelay: Double
-    var confirmBeforeClear: Bool
-
-    init(
-        launchAtLogin: Bool = false,
-        defaultRestoreBehavior: RestoreBehavior = .reuseExisting,
-        quickSwitchShortcut: String = "⌃⌥O",
-        showPopoverOnLaunch: Bool = true,
-        minimizeOthersOnRun: Bool = false,
-        windowPadding: Double = 4,
-        appLaunchDelay: Double = 600,
-        confirmBeforeClear: Bool = true
-    ) {
-        self.launchAtLogin = launchAtLogin
-        self.defaultRestoreBehavior = defaultRestoreBehavior
-        self.quickSwitchShortcut = quickSwitchShortcut
-        self.showPopoverOnLaunch = showPopoverOnLaunch
-        self.minimizeOthersOnRun = minimizeOthersOnRun
-        self.windowPadding = windowPadding
-        self.appLaunchDelay = appLaunchDelay
-        self.confirmBeforeClear = confirmBeforeClear
-    }
-
-    // Backward-compatible decoding for existing preferences.json
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
-        defaultRestoreBehavior = try container.decodeIfPresent(RestoreBehavior.self, forKey: .defaultRestoreBehavior) ?? .reuseExisting
-        quickSwitchShortcut = try container.decodeIfPresent(String.self, forKey: .quickSwitchShortcut) ?? "⌃⌥O"
-        showPopoverOnLaunch = try container.decodeIfPresent(Bool.self, forKey: .showPopoverOnLaunch) ?? true
-        minimizeOthersOnRun = try container.decodeIfPresent(Bool.self, forKey: .minimizeOthersOnRun) ?? false
-        windowPadding = try container.decodeIfPresent(Double.self, forKey: .windowPadding) ?? 4
-        appLaunchDelay = try container.decodeIfPresent(Double.self, forKey: .appLaunchDelay) ?? 600
-        confirmBeforeClear = try container.decodeIfPresent(Bool.self, forKey: .confirmBeforeClear) ?? true
-    }
 }
 
 enum RestoreBehavior: String, Codable {
