@@ -9,6 +9,7 @@ struct SettingsView: View {
     @State private var showClearConfirmation = false
     @State private var showResetPrefsConfirmation = false
     @State private var accessibilityGranted = false
+    @State private var accessibilityPollTask: Task<Void, Never>?
 
     enum SettingsTab: String, CaseIterable {
         case general, shortcuts, advanced, about
@@ -37,7 +38,24 @@ struct SettingsView: View {
             .shadow(color: .black.opacity(0.2), radius: 30, y: 10)
         }
         .onAppear {
-            accessibilityGranted = AccessibilityPermissionManager.isTrusted()
+            refreshAccessibilityStatus()
+        }
+        .onDisappear {
+            accessibilityPollTask?.cancel()
+            accessibilityPollTask = nil
+        }
+        .onChange(of: activeTab) { _, newTab in
+            accessibilityPollTask?.cancel()
+            accessibilityPollTask = nil
+            if newTab == .advanced {
+                refreshAccessibilityStatus()
+                startAccessibilityPolling()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            if activeTab == .advanced {
+                refreshAccessibilityStatus()
+            }
         }
         .alert("Clear All Workspaces?", isPresented: $showClearConfirmation) {
             Button("Delete All", role: .destructive) {
@@ -570,13 +588,14 @@ struct SettingsView: View {
                                 )
                                 .frame(width: 36, height: 36)
 
-                            Text("MF")
-                                .font(.system(size: 13, weight: .bold, design: .rounded))
-                                .foregroundStyle(.white)
+                            Image("fawaz_usmall")
+                                .frame(width: 32, height: 32)
+                                .cornerRadius(18)
+                                .scaledToFit()
                         }
 
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Mohamed Fawaz Faiz")
+                            Text("Fawaz Faiz")
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(DesignSystem.textPrimary)
 
@@ -615,6 +634,43 @@ struct SettingsView: View {
                 .foregroundStyle(DesignSystem.textSecondary)
                 .textSelection(.enabled)
             Spacer()
+        }
+    }
+
+    // MARK: - Accessibility Status Helpers
+
+    /// Re-checks accessibility permission off the main thread and updates the UI.
+    private func refreshAccessibilityStatus() {
+        Task {
+            let trusted = await Task.detached {
+                AccessibilityPermissionManager.isTrusted()
+            }.value
+            await MainActor.run {
+                accessibilityGranted = trusted
+                if trusted {
+                    AccessibilityPermissionManager.persistGrant()
+                }
+            }
+        }
+    }
+
+    /// Polls accessibility status every 2 seconds while the Advanced tab is visible.
+    /// Automatically stops when the tab changes or the view disappears.
+    private func startAccessibilityPolling() {
+        accessibilityPollTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { break }
+                let trusted = await Task.detached {
+                    AccessibilityPermissionManager.isTrusted()
+                }.value
+                await MainActor.run {
+                    accessibilityGranted = trusted
+                    if trusted {
+                        AccessibilityPermissionManager.persistGrant()
+                    }
+                }
+            }
         }
     }
 }

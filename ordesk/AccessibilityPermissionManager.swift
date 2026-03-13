@@ -25,16 +25,17 @@ struct AccessibilityPermissionManager {
 
     /// Attempts a real AXUIElement operation to see if Accessibility works.
     private static func canPerformAXOperation() -> Bool {
-        // Try the frontmost app first, then fall back to any regular app
+        // Try the frontmost app first, then fall back to any regular app.
+        // Use a generous candidate list — under sandbox, some apps may
+        // return .cannotComplete even when AX is granted.
         let candidates: [NSRunningApplication] = {
             var apps: [NSRunningApplication] = []
             if let front = NSWorkspace.shared.frontmostApplication {
                 apps.append(front)
             }
-            // Add a couple of regular apps as backup (e.g. Finder is always running)
             apps.append(contentsOf: NSWorkspace.shared.runningApplications.filter {
                 $0.activationPolicy == .regular && $0.bundleIdentifier != Bundle.main.bundleIdentifier
-            }.prefix(2))
+            }.prefix(10))
             return apps
         }()
 
@@ -50,10 +51,27 @@ struct AccessibilityPermissionManager {
                 return true
             }
             // .apiDisabled or .notImplemented = AX is truly not granted
-            // .cannotComplete = app may be unresponsive, try next candidate
             if result == .apiDisabled || result == .notImplemented {
                 return false
             }
+            // .cannotComplete = app may be unresponsive, try next candidate
+        }
+
+        // If all candidates returned .cannotComplete, check if CGWindowList
+        // can see windows from other apps — a secondary signal that the system
+        // is functional even if AX probing failed for the sampled apps.
+        if let windowList = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+        ) as? [[String: Any]] {
+            let hasRegularAppWindows = windowList.contains { info in
+                guard let pid = info[kCGWindowOwnerPID as String] as? Int,
+                      let layer = info[kCGWindowLayer as String] as? Int,
+                      layer == 0
+                else { return false }
+                let runningApp = NSRunningApplication(processIdentifier: pid_t(pid))
+                return runningApp?.activationPolicy == .regular
+            }
+            if hasRegularAppWindows { return true }
         }
 
         return false
