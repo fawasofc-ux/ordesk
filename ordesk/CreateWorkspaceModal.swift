@@ -314,29 +314,18 @@ struct CreateWorkspaceModal: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(DesignSystem.textSecondary)
 
-            HStack(spacing: 0) {
-                ForEach(DisplayMode.allCases, id: \.self) { mode in
-                    HStack(spacing: 5) {
-                        Image(systemName: mode.icon)
-                            .font(.system(size: 10))
-                        Text(mode.label)
-                            .font(.system(size: 11, weight: .medium))
-                    }
-                    .foregroundStyle(displayMode == mode ? .white : DesignSystem.textSecondary)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(
-                        Capsule()
-                            .fill(displayMode == mode ? DesignSystem.primaryBlue : Color.clear)
-                    )
-                    .opacity(displayMode == mode ? 1.0 : 0.4)
-                }
+            HStack(spacing: 5) {
+                Image(systemName: displayMode.icon)
+                    .font(.system(size: 10))
+                Text(displayMode.label)
+                    .font(.system(size: 11, weight: .medium))
             }
-            .padding(3)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
             .background(
                 Capsule()
-                    .fill(DesignSystem.elevatedSurface)
-                    .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
+                    .fill(DesignSystem.primaryBlue)
             )
 
             HStack(spacing: 4) {

@@ -148,34 +148,72 @@ struct DisplayModeTests {
         #expect(DisplayMode.single.label == "Single")
         #expect(DisplayMode.dual.label == "Dual")
         #expect(DisplayMode.triple.label == "Triple")
+        #expect(DisplayMode.quad.label == "Quad")
+        #expect(DisplayMode.penta.label == "Penta")
+        #expect(DisplayMode.hexa.label == "Hexa")
     }
 
     @Test func maxApps() {
         #expect(DisplayMode.single.maxApps == 4)
         #expect(DisplayMode.dual.maxApps == 8)
         #expect(DisplayMode.triple.maxApps == 12)
+        #expect(DisplayMode.quad.maxApps == 16)
+        #expect(DisplayMode.penta.maxApps == 20)
+        #expect(DisplayMode.hexa.maxApps == 24)
     }
 
     @Test func minApps() {
         #expect(DisplayMode.single.minApps == 1)
         #expect(DisplayMode.dual.minApps == 2)
         #expect(DisplayMode.triple.minApps == 3)
+        #expect(DisplayMode.quad.minApps == 4)
+        #expect(DisplayMode.penta.minApps == 5)
+        #expect(DisplayMode.hexa.minApps == 6)
+    }
+
+    @Test func displayCount() {
+        #expect(DisplayMode.single.displayCount == 1)
+        #expect(DisplayMode.dual.displayCount == 2)
+        #expect(DisplayMode.triple.displayCount == 3)
+        #expect(DisplayMode.quad.displayCount == 4)
+        #expect(DisplayMode.penta.displayCount == 5)
+        #expect(DisplayMode.hexa.displayCount == 6)
     }
 
     @Test func icons() {
         #expect(DisplayMode.single.icon == "display")
         #expect(DisplayMode.dual.icon == "display.2")
         #expect(DisplayMode.triple.icon == "display.2")
+        #expect(DisplayMode.quad.icon == "display.2")
+        #expect(DisplayMode.penta.icon == "display.2")
+        #expect(DisplayMode.hexa.icon == "display.2")
     }
 
     @Test func codableRawValues() {
         #expect(DisplayMode.single.rawValue == "single")
         #expect(DisplayMode.dual.rawValue == "dual")
         #expect(DisplayMode.triple.rawValue == "triple")
+        #expect(DisplayMode.quad.rawValue == "quad")
+        #expect(DisplayMode.penta.rawValue == "penta")
+        #expect(DisplayMode.hexa.rawValue == "hexa")
     }
 
     @Test func allCases() {
-        #expect(DisplayMode.allCases.count == 3)
+        #expect(DisplayMode.allCases.count == 6)
+    }
+
+    @Test func maxApps_formula() {
+        // Verify maxApps = displayCount * 4 for all modes
+        for mode in DisplayMode.allCases {
+            #expect(mode.maxApps == mode.displayCount * 4)
+        }
+    }
+
+    @Test func minApps_formula() {
+        // Verify minApps = displayCount for all modes
+        for mode in DisplayMode.allCases {
+            #expect(mode.minApps == mode.displayCount)
+        }
     }
 }
 
