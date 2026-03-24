@@ -6,8 +6,19 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+		AA000001000000000000000A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 98FA91232F45ACEC007D80E1 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 98FA912A2F45ACEC007D80E1;
+			remoteInfo = ordesk;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		98FA912B2F45ACEC007D80E1 /* ordesk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ordesk.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA000002000000000000000A /* ordeskTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ordeskTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -16,10 +27,22 @@
 			path = ordesk;
 			sourceTree = "<group>";
 		};
+		AA000003000000000000000A /* ordeskTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ordeskTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		98FA91282F45ACEC007D80E1 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA000004000000000000000A /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -33,6 +56,7 @@
 			isa = PBXGroup;
 			children = (
 				98FA912D2F45ACEC007D80E1 /* ordesk */,
+				AA000003000000000000000A /* ordeskTests */,
 				98FA912C2F45ACEC007D80E1 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +65,7 @@
 			isa = PBXGroup;
 			children = (
 				98FA912B2F45ACEC007D80E1 /* ordesk.app */,
+				AA000002000000000000000A /* ordeskTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -70,6 +95,27 @@
 			productReference = 98FA912B2F45ACEC007D80E1 /* ordesk.app */;
 			productType = "com.apple.product-type.application";
 		};
+		AA000005000000000000000A /* ordeskTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA00000C000000000000000A /* Build configuration list for PBXNativeTarget "ordeskTests" */;
+			buildPhases = (
+				AA000006000000000000000A /* Sources */,
+				AA000004000000000000000A /* Frameworks */,
+				AA000007000000000000000A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AA000008000000000000000A /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				AA000003000000000000000A /* ordeskTests */,
+			);
+			name = ordeskTests;
+			productName = ordeskTests;
+			productReference = AA000002000000000000000A /* ordeskTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -82,6 +128,10 @@
 				TargetAttributes = {
 					98FA912A2F45ACEC007D80E1 = {
 						CreatedOnToolsVersion = 26.2;
+					};
+					AA000005000000000000000A = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 98FA912A2F45ACEC007D80E1;
 					};
 				};
 			};
@@ -100,12 +150,20 @@
 			projectRoot = "";
 			targets = (
 				98FA912A2F45ACEC007D80E1 /* ordesk */,
+				AA000005000000000000000A /* ordeskTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		98FA91292F45ACEC007D80E1 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA000007000000000000000A /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +180,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AA000006000000000000000A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		AA000008000000000000000A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 98FA912A2F45ACEC007D80E1 /* ordesk */;
+			targetProxy = AA000001000000000000000A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		98FA91342F45ACED007D80E1 /* Debug */ = {
@@ -250,15 +323,17 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = ordesk/ordesk.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = YRW4AU3CVJ;
-				ENABLE_APP_SANDBOX = YES;
+				DEVELOPMENT_TEAM = ZNH5C6YPJ8;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ordesk/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -282,15 +357,17 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = ordesk/ordesk.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = YRW4AU3CVJ;
-				ENABLE_APP_SANDBOX = YES;
+				DEVELOPMENT_TEAM = ZNH5C6YPJ8;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ordesk/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -306,6 +383,46 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		AA000009000000000000000A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ZNH5C6YPJ8;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ordesk.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ordesk.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ordesk";
+			};
+			name = Debug;
+		};
+		AA00000A000000000000000A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ZNH5C6YPJ8;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ordesk.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ordesk.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ordesk";
 			};
 			name = Release;
 		};
@@ -326,6 +443,15 @@
 			buildConfigurations = (
 				98FA91372F45ACED007D80E1 /* Debug */,
 				98FA91382F45ACED007D80E1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA00000C000000000000000A /* Build configuration list for PBXNativeTarget "ordeskTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA000009000000000000000A /* Debug */,
+				AA00000A000000000000000A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

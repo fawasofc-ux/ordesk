@@ -10,12 +10,12 @@ class WorkspaceStore {
     var showingEditor = false
     var showingCreateModal = false
     var showingSettings = false
+    var workspaceToRun: Workspace?
+    var minimizeOthersOnRun = false
     var searchText = ""
-    var preferences = Preferences(
-        launchAtLogin: false,
-        defaultRestoreBehavior: .reuseExisting,
-        quickSwitchShortcut: "⌘⇧W"
-    )
+    var activeWorkspaceID: String?
+    var showingClearWorkspace = false
+    var preferences = Preferences()
 
     // MARK: - Persistence paths
 
@@ -63,8 +63,10 @@ class WorkspaceStore {
     func updateWorkspace(_ workspace: Workspace) {
         if let index = workspaces.firstIndex(where: { $0.id == workspace.id }) {
             workspaces[index] = workspace
-            saveWorkspaces()
+        } else {
+            workspaces.append(workspace)
         }
+        saveWorkspaces()
     }
 
     func deleteWorkspace(_ workspace: Workspace) {

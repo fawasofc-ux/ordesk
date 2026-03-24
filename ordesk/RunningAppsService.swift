@@ -44,4 +44,55 @@ enum RunningAppsService {
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
+
+    /// Returns installed apps from /Applications, /System/Applications, and ~/Applications.
+    /// Does not include currently running apps — use `runningApps()` for those.
+    static func installedApps() -> [RunningAppInfo] {
+        let fm = FileManager.default
+        let searchPaths: [String] = [
+            "/Applications",
+            "/System/Applications",
+            "/System/Applications/Utilities",
+            NSSearchPathForDirectoriesInDomains(.applicationDirectory, .userDomainMask, true).first
+        ].compactMap { $0 }
+
+        var apps: [RunningAppInfo] = []
+        var seenBundleIDs: Set<String> = []
+
+        for path in searchPaths {
+            let dirURL = URL(fileURLWithPath: path)
+            guard let contents = try? fm.contentsOfDirectory(
+                at: dirURL,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+
+            for url in contents where url.pathExtension == "app" {
+                guard let bundle = Bundle(url: url),
+                      let bundleID = bundle.bundleIdentifier,
+                      !excludedBundleIDs.contains(bundleID),
+                      !seenBundleIDs.contains(bundleID)
+                else { continue }
+
+                seenBundleIDs.insert(bundleID)
+
+                let name = (bundle.infoDictionary?["CFBundleDisplayName"] as? String)
+                    ?? (bundle.infoDictionary?["CFBundleName"] as? String)
+                    ?? url.deletingPathExtension().lastPathComponent
+
+                let icon = NSWorkspace.shared.icon(forFile: url.path)
+                icon.size = NSSize(width: 32, height: 32)
+
+                apps.append(RunningAppInfo(
+                    id: bundleID,
+                    name: name,
+                    icon: icon,
+                    bundleURL: url,
+                    isRunning: false
+                ))
+            }
+        }
+
+        return apps.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
 }

@@ -3,15 +3,9 @@ import AppKit
 
 struct DraggableAppCard: View {
     let app: AppInstance
-    @Binding var cardSize: AppCardSize
     var onRemove: () -> Void
 
     @State private var isHovered = false
-
-    /// Whether a real app icon can be resolved from the bundle identifier.
-    private var hasRealIcon: Bool {
-        app.resolvedIcon != nil
-    }
 
     // SF Symbol fallback gradient (used only when no real icon)
     private var iconGradient: LinearGradient {
@@ -73,7 +67,6 @@ struct DraggableAppCard: View {
                             .fill(DesignSystem.runningGreen)
                             .frame(width: 6, height: 6)
                     } else {
-                        // Not running indicator
                         Circle()
                             .fill(Color.gray.opacity(0.4))
                             .frame(width: 6, height: 6)
@@ -92,9 +85,8 @@ struct DraggableAppCard: View {
             )
             .opacity(app.isRunning ? 1.0 : 0.6)
 
-            // Hover controls
+            // Remove button on hover (top-left)
             if isHovered {
-                // Remove button (top-left)
                 Button(action: onRemove) {
                     Image(systemName: "xmark")
                         .font(.system(size: 8, weight: .bold))
@@ -108,31 +100,6 @@ struct DraggableAppCard: View {
                 }
                 .buttonStyle(.plain)
                 .offset(x: -4, y: -4)
-                .transition(.scale.combined(with: .opacity))
-
-                // Size selector (top-right)
-                HStack(spacing: 0) {
-                    ForEach(AppCardSize.allCases, id: \.self) { size in
-                        SizePillButton(
-                            label: size.label,
-                            isActive: cardSize == size,
-                            action: {
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                    cardSize = size
-                                }
-                            }
-                        )
-                    }
-                }
-                .padding(2)
-                .background(
-                    Capsule()
-                        .fill(.ultraThinMaterial)
-                        .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
-                        .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
-                )
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .offset(x: 4, y: -4)
                 .transition(.scale.combined(with: .opacity))
             }
         }
@@ -169,29 +136,36 @@ struct DraggableAppCard: View {
     }
 }
 
-// MARK: - Size Pill Button
+// MARK: - Add App Slot (empty slot with + button)
 
-struct SizePillButton: View {
-    let label: String
-    let isActive: Bool
+struct AddAppSlot: View {
     let action: () -> Void
-
     @State private var isHovered = false
 
     var body: some View {
         Button(action: action) {
-            Text(label)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(isActive ? .white : .secondary)
-                .frame(width: 24, height: 20)
-                .background(
-                    Capsule()
-                        .fill(isActive ? DesignSystem.primaryBlue : (isHovered ? DesignSystem.hoverBackground : Color.clear))
-                )
+            VStack(spacing: 8) {
+                Image(systemName: "plus")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(isHovered ? DesignSystem.primaryBlue : DesignSystem.textSecondary)
+
+                Text("Add App")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(isHovered ? DesignSystem.primaryBlue : DesignSystem.textSecondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.clear)
+                    .stroke(
+                        isHovered ? DesignSystem.primaryBlue.opacity(0.5) : DesignSystem.subtleBorder,
+                        style: StrokeStyle(lineWidth: 1, dash: [6, 3])
+                    )
+            )
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) {
+            withAnimation(.easeInOut(duration: 0.15)) {
                 isHovered = hovering
             }
         }
@@ -202,7 +176,6 @@ struct SizePillButton: View {
     let app = AppInstance(name: "Safari", bundleIdentifier: "com.apple.Safari", icon: "globe", isRunning: true)
     DraggableAppCard(
         app: app,
-        cardSize: .constant(.small),
         onRemove: {}
     )
     .frame(width: 160, height: 140)

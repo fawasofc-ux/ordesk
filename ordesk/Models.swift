@@ -15,6 +15,7 @@ struct AppInstance: Identifiable, Codable, Equatable {
     var position: CGPoint?
     var size: CGSize?
     var cardSize: AppCardSize
+    var displayIndex: Int          // Which display this app is assigned to (0 = main)
 
     init(
         id: String = UUID().uuidString,
@@ -24,7 +25,8 @@ struct AppInstance: Identifiable, Codable, Equatable {
         isRunning: Bool = false,
         position: CGPoint? = nil,
         size: CGSize? = nil,
-        cardSize: AppCardSize = .small
+        cardSize: AppCardSize = .small,
+        displayIndex: Int = 0
     ) {
         self.id = id
         self.name = name
@@ -34,6 +36,21 @@ struct AppInstance: Identifiable, Codable, Equatable {
         self.position = position
         self.size = size
         self.cardSize = cardSize
+        self.displayIndex = displayIndex
+    }
+
+    // Custom decoder for backward compatibility — old workspaces missing `displayIndex` default to 0
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        bundleIdentifier = try container.decode(String.self, forKey: .bundleIdentifier)
+        icon = try container.decode(String.self, forKey: .icon)
+        isRunning = try container.decode(Bool.self, forKey: .isRunning)
+        position = try container.decodeIfPresent(CGPoint.self, forKey: .position)
+        size = try container.decodeIfPresent(CGSize.self, forKey: .size)
+        cardSize = try container.decode(AppCardSize.self, forKey: .cardSize)
+        displayIndex = try container.decodeIfPresent(Int.self, forKey: .displayIndex) ?? 0
     }
 
     // MARK: - Runtime icon (not persisted)
@@ -94,13 +111,16 @@ struct Workspace: Identifiable, Codable, Equatable {
 }
 
 enum DisplayMode: String, Codable, CaseIterable {
-    case single, dual, triple
+    case single, dual, triple, quad, penta, hexa
 
     var label: String {
         switch self {
         case .single: return "Single"
         case .dual: return "Dual"
         case .triple: return "Triple"
+        case .quad: return "Quad"
+        case .penta: return "Penta"
+        case .hexa: return "Hexa"
         }
     }
 
@@ -108,24 +128,29 @@ enum DisplayMode: String, Codable, CaseIterable {
         switch self {
         case .single: return "display"
         case .dual: return "display.2"
-        case .triple: return "display.2"
+        case .triple, .quad, .penta, .hexa: return "display.2"
         }
     }
 
-    var maxApps: Int {
-        switch self {
-        case .single: return 4
-        case .dual: return 8
-        case .triple: return 12
-        }
-    }
-
-    var minApps: Int {
+    var displayCount: Int {
         switch self {
         case .single: return 1
         case .dual: return 2
         case .triple: return 3
+        case .quad: return 4
+        case .penta: return 5
+        case .hexa: return 6
         }
+    }
+
+    /// Maximum 4 apps per display
+    var maxApps: Int {
+        displayCount * 4
+    }
+
+    /// Minimum 1 app per display
+    var minApps: Int {
+        displayCount
     }
 }
 
@@ -161,6 +186,44 @@ struct Preferences: Codable {
     var launchAtLogin: Bool
     var defaultRestoreBehavior: RestoreBehavior
     var quickSwitchShortcut: String
+    var showPopoverOnLaunch: Bool
+    var minimizeOthersOnRun: Bool
+    var windowPadding: Double
+    var appLaunchDelay: Double
+    var confirmBeforeClear: Bool
+
+    init(
+        launchAtLogin: Bool = false,
+        defaultRestoreBehavior: RestoreBehavior = .reuseExisting,
+        quickSwitchShortcut: String = "⌃⌥O",
+        showPopoverOnLaunch: Bool = true,
+        minimizeOthersOnRun: Bool = false,
+        windowPadding: Double = 4,
+        appLaunchDelay: Double = 600,
+        confirmBeforeClear: Bool = true
+    ) {
+        self.launchAtLogin = launchAtLogin
+        self.defaultRestoreBehavior = defaultRestoreBehavior
+        self.quickSwitchShortcut = quickSwitchShortcut
+        self.showPopoverOnLaunch = showPopoverOnLaunch
+        self.minimizeOthersOnRun = minimizeOthersOnRun
+        self.windowPadding = windowPadding
+        self.appLaunchDelay = appLaunchDelay
+        self.confirmBeforeClear = confirmBeforeClear
+    }
+
+    // Backward-compatible decoding for existing preferences.json
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
+        defaultRestoreBehavior = try container.decodeIfPresent(RestoreBehavior.self, forKey: .defaultRestoreBehavior) ?? .reuseExisting
+        quickSwitchShortcut = try container.decodeIfPresent(String.self, forKey: .quickSwitchShortcut) ?? "⌃⌥O"
+        showPopoverOnLaunch = try container.decodeIfPresent(Bool.self, forKey: .showPopoverOnLaunch) ?? true
+        minimizeOthersOnRun = try container.decodeIfPresent(Bool.self, forKey: .minimizeOthersOnRun) ?? false
+        windowPadding = try container.decodeIfPresent(Double.self, forKey: .windowPadding) ?? 4
+        appLaunchDelay = try container.decodeIfPresent(Double.self, forKey: .appLaunchDelay) ?? 600
+        confirmBeforeClear = try container.decodeIfPresent(Bool.self, forKey: .confirmBeforeClear) ?? true
+    }
 }
 
 enum RestoreBehavior: String, Codable {
