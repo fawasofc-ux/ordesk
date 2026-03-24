@@ -56,12 +56,15 @@ enum WindowDetectionService {
 
     // MARK: - Auto Display Mode
 
-    /// Detects the appropriate DisplayMode based on connected screen count.
+    /// Detects the appropriate DisplayMode based on connected screen count (max 6).
     static func autoDetectedDisplayMode() -> DisplayMode {
         switch NSScreen.screens.count {
         case 1:      return .single
         case 2:      return .dual
-        default:     return .triple
+        case 3:      return .triple
+        case 4:      return .quad
+        case 5:      return .penta
+        default:     return .hexa   // 6+ screens capped at hexa
         }
     }
 

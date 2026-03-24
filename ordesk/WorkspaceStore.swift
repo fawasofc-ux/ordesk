@@ -15,11 +15,7 @@ class WorkspaceStore {
     var searchText = ""
     var activeWorkspaceID: String?
     var showingClearWorkspace = false
-    var preferences = Preferences(
-        launchAtLogin: false,
-        defaultRestoreBehavior: .reuseExisting,
-        quickSwitchShortcut: "⌘⇧W"
-    )
+    var preferences = Preferences()
 
     // MARK: - Persistence paths
 

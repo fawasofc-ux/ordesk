@@ -239,30 +239,19 @@ struct WorkspaceEditor: View {
 
     private var displayModeBar: some View {
         HStack(spacing: 12) {
-            // Display mode pills (non-interactive, same as CreateWorkspaceModal)
-            HStack(spacing: 0) {
-                ForEach(DisplayMode.allCases, id: \.self) { mode in
-                    HStack(spacing: 5) {
-                        Image(systemName: mode.icon)
-                            .font(.system(size: 10))
-                        Text(mode.label)
-                            .font(.system(size: 11, weight: .medium))
-                    }
-                    .foregroundStyle(editingWorkspace.displayMode == mode ? .white : DesignSystem.textSecondary)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(
-                        Capsule()
-                            .fill(editingWorkspace.displayMode == mode ? DesignSystem.primaryBlue : Color.clear)
-                    )
-                    .opacity(editingWorkspace.displayMode == mode ? 1.0 : 0.4)
-                }
+            // Active display mode badge
+            HStack(spacing: 5) {
+                Image(systemName: editingWorkspace.displayMode.icon)
+                    .font(.system(size: 10))
+                Text(editingWorkspace.displayMode.label)
+                    .font(.system(size: 11, weight: .medium))
             }
-            .padding(3)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
             .background(
                 Capsule()
-                    .fill(DesignSystem.elevatedSurface)
-                    .stroke(DesignSystem.subtleBorder, lineWidth: 0.5)
+                    .fill(DesignSystem.primaryBlue)
             )
 
             // Detected display count
@@ -310,11 +299,21 @@ struct WorkspaceEditor: View {
                 .padding(.horizontal, 24)
                 .padding(.vertical, 16)
             } else {
-                // 3 displays: side-by-side grids (no swap)
-                HStack(alignment: .top, spacing: 24) {
-                    ForEach(0..<displayCount, id: \.self) { displayIndex in
-                        let display = displayIndex < detectedDisplays.count ? detectedDisplays[displayIndex] : nil
-                        multiDisplaySection(displayIndex: displayIndex, display: display)
+                // 3–6 displays: scrollable grid, 3 per row
+                let columns = min(displayCount, 3)
+                let rows = Int(ceil(Double(displayCount) / Double(columns)))
+
+                VStack(alignment: .leading, spacing: 20) {
+                    ForEach(0..<rows, id: \.self) { row in
+                        HStack(alignment: .top, spacing: 24) {
+                            ForEach(0..<columns, id: \.self) { col in
+                                let displayIndex = row * columns + col
+                                if displayIndex < displayCount {
+                                    let display = displayIndex < detectedDisplays.count ? detectedDisplays[displayIndex] : nil
+                                    multiDisplaySection(displayIndex: displayIndex, display: display)
+                                }
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, 24)

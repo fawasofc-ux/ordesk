@@ -39,6 +39,9 @@ struct MenuBarPopover: View {
 
                 // MARK: - Footer
                 footerSection
+
+                // MARK: - Quit
+                quitButton
             }
 
             // MARK: - Name Input Popup
@@ -456,6 +459,23 @@ struct MenuBarPopover: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(DesignSystem.elevatedSurface.opacity(0.5))
+    }
+
+    private var quitButton: some View {
+        Button {
+            NSApplication.shared.terminate(nil)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "power")
+                    .font(.system(size: 10, weight: .medium))
+                Text("Quit Ordesk")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundStyle(DesignSystem.textSecondary)
+        }
+        .buttonStyle(.plain)
+        .padding(.bottom, 8)
+        .padding(.top, 4)
     }
 }
 

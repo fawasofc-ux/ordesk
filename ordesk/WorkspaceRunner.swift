@@ -278,7 +278,7 @@ final class WorkspaceRunner {
 
     /// Converts a screen's visibleFrame from Cocoa coordinates (origin bottom-left, Y up)
     /// to AX coordinates (origin top-left of main screen, Y down).
-    private func cocoaVisibleFrameToAX(screen: NSScreen, mainScreenHeight: CGFloat) -> CGRect {
+    func cocoaVisibleFrameToAX(screen: NSScreen, mainScreenHeight: CGFloat) -> CGRect {
         let visibleFrame = screen.visibleFrame
         let axX = visibleFrame.origin.x
         let axY = mainScreenHeight - visibleFrame.origin.y - visibleFrame.height
@@ -316,7 +316,7 @@ final class WorkspaceRunner {
     /// - 2 apps → side by side (left | right)
     /// - 3 apps → 2 on top, 1 full-width on bottom
     /// - 4 apps → 2×2 grid
-    private func dynamicLayoutFrames(count: Int, in rect: CGRect) -> [CGRect] {
+    func dynamicLayoutFrames(count: Int, in rect: CGRect) -> [CGRect] {
         let padding: CGFloat = 4
 
         switch count {
@@ -495,5 +495,19 @@ final class WorkspaceRunner {
         }
 
         return "Unable to run workspace. Please ensure:\n\n" + issues.joined(separator: "\n")
+    }
+
+    // MARK: - Test Helpers
+
+    /// Exposes dynamicLayoutFrames for unit testing.
+    func testDynamicLayoutFrames(count: Int, in rect: CGRect) -> [CGRect] {
+        dynamicLayoutFrames(count: count, in: rect)
+    }
+
+    /// Exposes coordinate conversion for unit testing (without needing an NSScreen).
+    func testCocoaVisibleFrameToAX(visibleFrame: CGRect, mainScreenHeight: CGFloat) -> CGRect {
+        let axX = visibleFrame.origin.x
+        let axY = mainScreenHeight - visibleFrame.origin.y - visibleFrame.height
+        return CGRect(x: axX, y: axY, width: visibleFrame.width, height: visibleFrame.height)
     }
 }
