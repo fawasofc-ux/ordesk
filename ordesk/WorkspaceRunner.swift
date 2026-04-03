@@ -420,9 +420,28 @@ final class WorkspaceRunner {
         var windowsRef: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef)
 
-        guard result == .success, let windows = windowsRef as? [AXUIElement], let window = windows.first else {
+        guard result == .success, let windows = windowsRef as? [AXUIElement], !windows.isEmpty else {
             print("[WorkspaceRunner] No AX windows found for \(runningApp.localizedName ?? "unknown")")
             return
+        }
+
+        // Use the main (frontmost/last active) window — fall back to first if unavailable
+        var mainWindowRef: CFTypeRef?
+        let mainResult = AXUIElementCopyAttributeValue(appElement, kAXMainWindowAttribute as CFString, &mainWindowRef)
+        let window: AXUIElement
+        if mainResult == .success, let mainWindow = mainWindowRef as! AXUIElement? {
+            window = mainWindow
+        } else {
+            window = windows[0]
+        }
+
+        // Minimize all other windows so they don't clutter the layout
+        for other in windows where other != window {
+            var minimizedRef: CFTypeRef?
+            let canCheck = AXUIElementCopyAttributeValue(other, kAXMinimizedAttribute as CFString, &minimizedRef)
+            if canCheck == .success {
+                AXUIElementSetAttributeValue(other, kAXMinimizedAttribute as CFString, true as CFTypeRef)
+            }
         }
 
         // Set position

@@ -6,5 +6,7 @@
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Ordesk needs Automation access to create new macOS Desktops and arrange your workspace.</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.utilities</string>
 </dict>
 </plist>
