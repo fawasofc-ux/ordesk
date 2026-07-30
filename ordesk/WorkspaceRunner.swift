@@ -7,11 +7,10 @@ import Foundation
 /// their windows at the correct screen ratios based on displayIndex and
 /// dynamic layout (apps fill the screen adaptively).
 ///
-/// Uses AppleScript + AXUIElement for window management.
+/// Uses AXUIElement for window management.
 ///
 /// Requires:
 ///   - Accessibility permission (AXIsProcessTrusted)
-///   - Automation permission for "System Events" (NSAppleEventsUsageDescription)
 @MainActor
 final class WorkspaceRunner {
 
@@ -73,13 +72,21 @@ final class WorkspaceRunner {
             try await Task.sleep(for: .milliseconds(300))
         }
 
-        // Step 1: Launch / activate all apps
+        // Step 1: Launch / activate all apps.
+        // A single app failing (e.g. not installed) must not abort the whole
+        // workspace — collect failures and keep going.
         let apps = workspace.apps
+        var failedAppNames: Set<String> = []
         print("[WorkspaceRunner] Launching \(apps.count) app(s)...")
         for (index, app) in apps.enumerated() {
             print("[WorkspaceRunner] [\(index+1)/\(apps.count)] \(app.name) -- \(app.bundleIdentifier) (display \(app.displayIndex))")
             transition(to: .launchingApps(current: app.name, index: index, total: apps.count))
-            try await launchAndActivateApp(app)
+            do {
+                try await launchAndActivateApp(app)
+            } catch {
+                print("[WorkspaceRunner] Failed to launch \(app.name): \(error.localizedDescription)")
+                failedAppNames.insert(app.name)
+            }
 
             // Delay between launches to avoid macOS window race conditions
             if index < apps.count - 1 {
@@ -87,8 +94,18 @@ final class WorkspaceRunner {
             }
         }
 
-        // Step 2: Wait for all windows to settle
-        try await Task.sleep(for: .milliseconds(500))
+        // If nothing launched at all, fail the run
+        if !apps.isEmpty && failedAppNames.count == apps.count {
+            let message = "None of the workspace apps could be launched."
+            transition(to: .failed(message))
+            throw RunnerError.appLaunchFailed(appName: apps.map(\.name).joined(separator: ", "), reason: message)
+        }
+
+        // Step 2: Ensure all app windows are ready before positioning
+        print("[WorkspaceRunner] Waiting for all app windows to be ready...")
+        for app in apps where !failedAppNames.contains(app.name) {
+            try await waitForAppWindow(bundleIdentifier: app.bundleIdentifier, timeout: 8.0)
+        }
 
         // Step 3: Position all windows based on displayIndex + dynamic layout
         transition(to: .positioningWindows)
@@ -101,32 +118,36 @@ final class WorkspaceRunner {
     // MARK: - Minimize Unselected Apps
 
     /// Minimizes all visible windows of apps NOT in the workspace.
+    /// Iterates every regular running app (not just apps with AX-detectable
+    /// visible windows) so background apps and apps on other Spaces are covered.
     private func minimizeAppsNotInWorkspace(_ workspace: Workspace) {
         let workspaceBundleIDs = Set(workspace.apps.map(\.bundleIdentifier).filter { !$0.isEmpty })
         let ordeskBundleID = Bundle.main.bundleIdentifier ?? ""
 
-        let visibleBundleIDs = WindowDetectionService.bundleIDsWithVisibleWindows()
-        let toMinimize = visibleBundleIDs
-            .subtracting(workspaceBundleIDs)
-            .subtracting([ordeskBundleID])
+        let toMinimize = NSWorkspace.shared.runningApplications.filter { app in
+            guard app.activationPolicy == .regular,
+                  let bundleID = app.bundleIdentifier else { return false }
+            return bundleID != ordeskBundleID
+                && !workspaceBundleIDs.contains(bundleID)
+                && !app.isHidden
+        }
 
         print("[WorkspaceRunner] Minimizing \(toMinimize.count) unselected app(s)...")
 
-        for bundleID in toMinimize {
-            guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-                $0.bundleIdentifier == bundleID
-            }) else { continue }
-
+        for runningApp in toMinimize {
             // Minimize all windows via AXUIElement
             let appElement = AXUIElementCreateApplication(runningApp.processIdentifier)
             var windowsRef: CFTypeRef?
             let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef)
 
-            if result == .success, let windows = windowsRef as? [AXUIElement] {
+            if result == .success, let windows = windowsRef as? [AXUIElement], !windows.isEmpty {
                 for window in windows {
                     AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, true as CFTypeRef)
                 }
-                print("[WorkspaceRunner] Minimized windows for \(runningApp.localizedName ?? bundleID)")
+                print("[WorkspaceRunner] Minimized windows for \(runningApp.localizedName ?? "unknown")")
+            } else {
+                // AX returned no windows (e.g. windows on another Space) — hide the app instead
+                runningApp.hide()
             }
         }
     }
@@ -134,7 +155,6 @@ final class WorkspaceRunner {
     // MARK: - Launch & Activate Apps
 
     /// Launches an app if not running, or activates + unminimizes it if already running.
-    /// Uses AppleScript to ensure the app is visible on the current Desktop.
     private func launchAndActivateApp(_ app: AppInstance) async throws {
         guard !app.bundleIdentifier.isEmpty else {
             throw RunnerError.appLaunchFailed(
@@ -171,17 +191,9 @@ final class WorkspaceRunner {
             unminimizeWindows(for: runningApp)
             try await Task.sleep(for: .milliseconds(150))
 
-            // Activate the app — just a simple activate, no window counting
-            // (many apps like Figma/Electron don't support AppleScript window commands)
-            let activateScript = """
-            tell application id "\(app.bundleIdentifier)" to activate
-            """
-            let result = executeAppleScript(activateScript)
-            if let error = result.error {
-                print("[WorkspaceRunner] AppleScript activate failed for \(app.name): \(error)")
-                // Fallback: NSRunningApplication.activate
-                runningApp.activate()
-            }
+            // Activate via NSRunningApplication — unlike AppleScript, this needs
+            // no Automation permission, so no per-app permission prompts appear.
+            runningApp.activate()
 
             // Wait for the app to come to foreground
             try await Task.sleep(for: .milliseconds(400))
@@ -258,6 +270,11 @@ final class WorkspaceRunner {
         guard let mainScreen = screens.first else { return }
         let mainScreenHeight = mainScreen.frame.height
 
+        // Assign a distinct AX window to every app instance up front.
+        // This handles the same app appearing multiple times (multi-window apps
+        // like Chrome) and identifies apps that never opened a window.
+        let assignments = await assignWindows(for: apps)
+
         // Group apps by displayIndex
         var appsByDisplay: [Int: [AppInstance]] = [:]
         for app in apps {
@@ -270,10 +287,123 @@ final class WorkspaceRunner {
             let screen = displayIndex < screens.count ? screens[displayIndex] : mainScreen
             let axRect = cocoaVisibleFrameToAX(screen: screen, mainScreenHeight: mainScreenHeight)
 
-            print("[WorkspaceRunner] Display \(displayIndex) (\(screen.localizedName)): \(displayApps.count) app(s) → AX rect \(axRect)")
+            // Only lay out apps that actually have a window, so failed/missing
+            // apps don't leave empty holes in the layout
+            let appsToPosition = displayApps.filter { assignments[$0.id] != nil }
+            let skipped = displayApps.count - appsToPosition.count
+            if skipped > 0 {
+                print("[WorkspaceRunner] Display \(displayIndex): \(skipped) app(s) have no window, laying out the remaining \(appsToPosition.count)")
+            }
 
-            await positionAppsOnScreen(displayApps, in: axRect)
+            print("[WorkspaceRunner] Display \(displayIndex) (\(screen.localizedName)): \(appsToPosition.count) app(s) → AX rect \(axRect)")
+
+            let frames = dynamicLayoutFrames(count: appsToPosition.count, in: axRect)
+            for (index, app) in appsToPosition.enumerated() {
+                guard index < frames.count, let window = assignments[app.id] else { continue }
+                print("[WorkspaceRunner] Positioning \(app.name) at \(frames[index])")
+                setFrame(window: window, frame: frames[index], appName: app.name)
+                try? await Task.sleep(for: .milliseconds(100))
+            }
         }
+
+        // Re-activate all workspace apps to ensure they're visible after positioning
+        var activatedBundleIDs: Set<String> = []
+        for app in apps where !activatedBundleIDs.contains(app.bundleIdentifier) {
+            activatedBundleIDs.insert(app.bundleIdentifier)
+            if let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+                $0.bundleIdentifier == app.bundleIdentifier
+            }) {
+                runningApp.activate()
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+        }
+    }
+
+    /// Maps each AppInstance ID to a distinct AX window of its app.
+    ///
+    /// If the same app appears N times in the workspace, its first N windows are
+    /// used (main window first) and any surplus windows are minimized so they
+    /// don't clutter the layout. Instances whose app isn't running or has no
+    /// windows get no assignment.
+    private func assignWindows(for apps: [AppInstance]) async -> [String: AXUIElement] {
+        var assignments: [String: AXUIElement] = [:]
+
+        // Group instance IDs by bundleID, preserving workspace order
+        var instancesByBundle: [String: [String]] = [:]
+        var bundleOrder: [String] = []
+        for app in apps {
+            if instancesByBundle[app.bundleIdentifier] == nil {
+                bundleOrder.append(app.bundleIdentifier)
+            }
+            instancesByBundle[app.bundleIdentifier, default: []].append(app.id)
+        }
+
+        for bundleID in bundleOrder {
+            guard let instanceIDs = instancesByBundle[bundleID],
+                  let runningApp = NSWorkspace.shared.runningApplications.first(where: {
+                      $0.bundleIdentifier == bundleID
+                  }) else {
+                print("[WorkspaceRunner] \(bundleID) not running, no window to assign")
+                continue
+            }
+
+            // Retry: windows may not exist yet right after launch
+            var windows: [AXUIElement] = []
+            for attempt in 0..<5 {
+                if attempt > 0 { try? await Task.sleep(for: .milliseconds(500)) }
+                windows = orderedWindows(for: runningApp)
+                if !windows.isEmpty { break }
+            }
+
+            guard !windows.isEmpty else {
+                print("[WorkspaceRunner] No windows found for \(bundleID) after retries")
+                continue
+            }
+
+            // Assign one window per instance
+            for (index, instanceID) in instanceIDs.enumerated() where index < windows.count {
+                assignments[instanceID] = windows[index]
+            }
+
+            // Minimize surplus windows so they don't clutter the layout
+            if windows.count > instanceIDs.count {
+                for window in windows[instanceIDs.count...] {
+                    AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, true as CFTypeRef)
+                }
+            }
+        }
+
+        return assignments
+    }
+
+    /// Returns an app's non-minimized windows, main window first.
+    private func orderedWindows(for runningApp: NSRunningApplication) -> [AXUIElement] {
+        let appElement = AXUIElementCreateApplication(runningApp.processIdentifier)
+        var windowsRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+              let windows = windowsRef as? [AXUIElement], !windows.isEmpty else { return [] }
+
+        let visible = windows.filter { window in
+            var minimizedRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &minimizedRef) == .success,
+               let isMinimized = minimizedRef as? Bool {
+                return !isMinimized
+            }
+            return true
+        }
+        guard !visible.isEmpty else { return [] }
+
+        // Put the main (frontmost/last active) window first
+        var mainWindowRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(appElement, kAXMainWindowAttribute as CFString, &mainWindowRef) == .success,
+           let mainWindow = mainWindowRef as! AXUIElement?,
+           let mainIndex = visible.firstIndex(where: { $0 == mainWindow }) {
+            var ordered = visible
+            ordered.remove(at: mainIndex)
+            ordered.insert(mainWindow, at: 0)
+            return ordered
+        }
+        return visible
     }
 
     /// Converts a screen's visibleFrame from Cocoa coordinates (origin bottom-left, Y up)
@@ -283,31 +413,6 @@ final class WorkspaceRunner {
         let axX = visibleFrame.origin.x
         let axY = mainScreenHeight - visibleFrame.origin.y - visibleFrame.height
         return CGRect(x: axX, y: axY, width: visibleFrame.width, height: visibleFrame.height)
-    }
-
-    /// Positions a group of apps on a single screen using dynamic layout.
-    private func positionAppsOnScreen(_ apps: [AppInstance], in axRect: CGRect) async {
-        let frames = dynamicLayoutFrames(count: apps.count, in: axRect)
-
-        for (index, app) in apps.enumerated() {
-            guard index < frames.count else { continue }
-            let targetFrame = frames[index]
-
-            print("[WorkspaceRunner] Positioning \(app.name) at \(targetFrame)")
-
-            guard let runningApp = NSWorkspace.shared.runningApplications.first(where: {
-                $0.bundleIdentifier == app.bundleIdentifier
-            }) else {
-                print("[WorkspaceRunner] \(app.name) not running, skipping position")
-                continue
-            }
-
-            setWindowFrame(for: runningApp, frame: targetFrame)
-
-            if index < apps.count - 1 {
-                try? await Task.sleep(for: .milliseconds(100))
-            }
-        }
     }
 
     /// Dynamic layout: apps automatically fill the available space.
@@ -413,43 +518,19 @@ final class WorkspaceRunner {
         }
     }
 
-    /// Sets the position and size of the frontmost window of a running application
-    /// using the Accessibility API (AXUIElement).
-    private func setWindowFrame(for runningApp: NSRunningApplication, frame: CGRect) {
-        let appElement = AXUIElementCreateApplication(runningApp.processIdentifier)
-        var windowsRef: CFTypeRef?
-        let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef)
-
-        guard result == .success, let windows = windowsRef as? [AXUIElement], !windows.isEmpty else {
-            print("[WorkspaceRunner] No AX windows found for \(runningApp.localizedName ?? "unknown")")
-            return
-        }
-
-        // Use the main (frontmost/last active) window — fall back to first if unavailable
-        var mainWindowRef: CFTypeRef?
-        let mainResult = AXUIElementCopyAttributeValue(appElement, kAXMainWindowAttribute as CFString, &mainWindowRef)
-        let window: AXUIElement
-        if mainResult == .success, let mainWindow = mainWindowRef as! AXUIElement? {
-            window = mainWindow
-        } else {
-            window = windows[0]
-        }
-
-        // Minimize all other windows so they don't clutter the layout
-        for other in windows where other != window {
-            var minimizedRef: CFTypeRef?
-            let canCheck = AXUIElementCopyAttributeValue(other, kAXMinimizedAttribute as CFString, &minimizedRef)
-            if canCheck == .success {
-                AXUIElementSetAttributeValue(other, kAXMinimizedAttribute as CFString, true as CFTypeRef)
-            }
-        }
+    /// Sets an AX window's position and size.
+    /// Returns `true` if both attributes were set successfully.
+    @discardableResult
+    private func setFrame(window: AXUIElement, frame: CGRect, appName: String) -> Bool {
+        var success = true
 
         // Set position
         var position = CGPoint(x: frame.origin.x, y: frame.origin.y)
         if let posValue = AXValueCreate(.cgPoint, &position) {
             let posResult = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, posValue)
             if posResult != .success {
-                print("[WorkspaceRunner] Failed to set position for \(runningApp.localizedName ?? "unknown"): \(posResult.rawValue)")
+                print("[WorkspaceRunner] Failed to set position for \(appName): \(posResult.rawValue)")
+                success = false
             }
         }
 
@@ -458,31 +539,12 @@ final class WorkspaceRunner {
         if let sizeValue = AXValueCreate(.cgSize, &size) {
             let sizeResult = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
             if sizeResult != .success {
-                print("[WorkspaceRunner] Failed to set size for \(runningApp.localizedName ?? "unknown"): \(sizeResult.rawValue)")
+                print("[WorkspaceRunner] Failed to set size for \(appName): \(sizeResult.rawValue)")
+                success = false
             }
         }
-    }
 
-    // MARK: - AppleScript Execution
-
-    private struct ScriptResult {
-        let output: String?
-        let error: String?
-    }
-
-    /// Executes an AppleScript string synchronously and returns the result.
-    private func executeAppleScript(_ source: String) -> ScriptResult {
-        var errorDict: NSDictionary?
-        let script = NSAppleScript(source: source)
-        let result = script?.executeAndReturnError(&errorDict)
-
-        if let errorDict = errorDict {
-            let message = errorDict[NSAppleScript.errorMessage] as? String
-                ?? "Unknown AppleScript error"
-            return ScriptResult(output: nil, error: message)
-        }
-
-        return ScriptResult(output: result?.stringValue, error: nil)
+        return success
     }
 
     // MARK: - State Machine

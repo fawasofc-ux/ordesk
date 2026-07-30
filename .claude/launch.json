@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ordeskapp-site",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "4173", "--directory", "/Users/fawaz.faiz/Documents/Projects/ordeskapp.com"],
+      "port": 4173
+    }
+  ]
+}
